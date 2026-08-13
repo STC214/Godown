@@ -7,9 +7,28 @@
 /*.pdb
 /dist/
 /build/
+*.test
+coverage.out
+/coverage/
+
+# Local verification, generated artifacts and agent worktrees.
+/.codex-artifacts/
 
 # Runtime data if the app is launched from the workspace.
 /GhostDownloader.log
 /config.db
+**/.torrent.db
+*.db-wal
+*.db-shm
+*.db-journal
 /runtimes/
 /temp/
+
+# Editor and operating-system metadata.
+/.vscode/
+/.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+Desktop.ini

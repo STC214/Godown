@@ -14,8 +14,11 @@
 ## 2. 目录结构
 
 ```text
-cmd/gd3win/                 Windows 程序入口、manifest 与资源
+cmd/gd3win/                 Windows GUI 程序入口、manifest 与资源
+cmd/gd3-bt-runtime/         BT 独立运行时进程入口
+scripts/build-release.ps1   保留调试信息的双产物构建脚本
 internal/app/               配置、存储、Worker、调度器和 UI 装配
+internal/btruntime/         GUI 侧轻量 BT JSON 流协议客户端
 internal/core/              Task 模型、状态机与 Scheduler
 internal/config/            路径和 Settings
 internal/storage/           SQLite 配置与任务存储
@@ -55,7 +58,7 @@ BT 进入 `seeding` 后设置 `UsesSlot=false`，因此做种任务不会阻塞�
 1. `IsSource` 识别 torrent 或 Magnet。
 2. `Resolve` 获取并解析 metainfo，合并 Tracker，构建 `core.Task`。
 3. UI 在 Scheduler.Add 前调用 `SetSelectedFiles` 固化选择。
-4. Worker 创建 anacrolix client 与任务专属 `resumeFileStorage`。
+4. GUI 通过同目录 `gd3-bt-runtime.exe` 启动运行时；运行时 Worker 创建 anacrolix client 与任务专属 `resumeFileStorage`。
 5. 下载进度只根据哈希校验成功的 piece 计算。
 6. piece completion 存储在 `<task-path>/.gd3_bt/<task-id>`。
 7. 所选内容完成后迁移到 `seeding`；分享率或时间条件满足后完成。
@@ -83,7 +86,19 @@ BT 进入 `seeding` 后设置 `UsesSlot=false`，因此做种任务不会阻塞�
 5. 为暂停、恢复、清理、重新下载和应用退出补齐测试。
 6. 如任务存在“不占下载槽”的阶段，通过 `UsesSlot` 上报，不要绕过 Scheduler。
 
-## 7. 构建与验证
+## 7. BT 运行时边界
+
+Go 在 Windows 上默认把包静态链接进 EXE。为了保留完整符号/DWARF 调试能力，同时控制 GUI 文件体积，BT 引擎采用独立进程而不是剥离调试符号：
+
+- GUI 只依赖 `internal/btruntime`，不依赖 `internal/download/bt` 或 anacrolix。
+- `resolve` 与 `reset` 使用一次性 JSON 请求/响应。
+- `run` 使用标准输入发送 Task，并在标准输出持续发送 `ProgressUpdate` JSON。
+- GUI 关闭运行时标准输入表示取消；运行时先保存 checkpoint、关闭 BT 会话，再发送终态。
+- runtime 缺失时只影响 BT 创建/运行，并返回包含预期同目录文件名的错误。
+
+修改进程协议后必须同时验证：`go list -deps ./cmd/gd3win` 不包含 anacrolix/Pion，以及真实 runtime 进程可以解析 torrent、下载本地 WebSeed 并响应取消。
+
+## 8. 构建与验证
 
 ```powershell
 gofmt -w cmd internal
@@ -91,7 +106,7 @@ go mod tidy
 go test -count=1 ./...
 go test -race -count=1 ./...
 go vet ./...
-go build -trimpath -o gd3win.exe ./cmd/gd3win
+.\scripts\build-release.ps1
 ```
 
 BT 本地集成测试使用动态生成的 bencode torrent 与 `httptest` Range WebSeed，不依赖公共 swarm：
@@ -102,12 +117,19 @@ go test ./internal/download/bt `
   -v -count=3
 ```
 
+独立运行时端到端测试：
+
+```powershell
+$env:GD3_BT_RUNTIME_TEST_PATH = (Resolve-Path .\dist\gd3-bt-runtime.exe).Path
+go test -run TestRuntimeProcessResolveAndDownload -v ./internal/btruntime
+Remove-Item Env:\GD3_BT_RUNTIME_TEST_PATH
+```
+
 修改 BT 恢复逻辑后，还应确认测试目录和仓库根目录没有生成 `.torrent.db`。测试中直接创建默认 anacrolix client 时，要把 `ClientConfig.DataDir` 指向 `t.TempDir()`。
 
-## 8. 文档与阶段记录
+## 9. 文档与阶段记录
 
 - 蓝图描述目标设计与分阶段验收标准。
 - `implementation-notes/NNN-*.md` 记录实际实现、差异、待办和验证命令。
 - 功能行为改变时同步更新用户指南；架构契约改变时同步更新本文件。
 - 文档中的“已实现”必须有代码或测试依据；待验证项保留在阶段记录的 Pending 中。
-

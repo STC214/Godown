@@ -1,7 +1,0 @@
-{
-    "Path":  "F:\\Project\\04_Desktop_Dev_Utilities\\Downloader\\.codex-artifacts\\stage5-20260813-001\\modified-artifact\\gd3win-stage5.exe",
-    "Length":  63566192,
-    "Magic":  "MZ",
-    "SHA256":  "bd2614bb251c60f1c539ead2b3b300cecf560c230411be8a9bf18bc21744258d",
-    "BuildCommand":  "go build -trimpath -o \"F:\\Project\\04_Desktop_Dev_Utilities\\Downloader\\.codex-artifacts\\stage5-20260813-001\\modified-artifact\\gd3win-stage5.exe\" ./cmd/gd3win"
-}

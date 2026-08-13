@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"ghost-downloader-go-win32/internal/browserbridge"
+	btdownload "ghost-downloader-go-win32/internal/btruntime"
 	"ghost-downloader-go-win32/internal/config"
 	"ghost-downloader-go-win32/internal/core"
-	btdownload "ghost-downloader-go-win32/internal/download/bt"
 	httpdownload "ghost-downloader-go-win32/internal/download/http"
 	m3u8download "ghost-downloader-go-win32/internal/download/m3u8"
 	"ghost-downloader-go-win32/internal/ratelimit"

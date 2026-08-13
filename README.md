@@ -26,9 +26,16 @@ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版�
 
 ```powershell
 go mod download
-go build -trimpath -o gd3win.exe ./cmd/gd3win
-.\gd3win.exe
+.\scripts\build-release.ps1
+.\dist\gd3win.exe
 ```
+
+构建会生成两个均保留 Go 符号表和 DWARF 调试信息的文件：
+
+- `gd3win.exe`：轻量主界面、调度器及 HTTP/M3U8 功能；
+- `gd3-bt-runtime.exe`：BitTorrent/Magnet 引擎运行库进程。
+
+发布和运行时必须将二者放在同一目录。BT 引擎拆为独立进程后，主程序不会静态链接 torrent、DHT 和 WebRTC 协议栈。
 
 ### 添加下载
 
@@ -56,4 +63,3 @@ go build -trimpath ./...
 - 任务开始后暂不支持动态修改 BT 文件优先级。
 - BT 的 HTTP 元数据、HTTP/WebSocket Tracker 与 WebSeed 遵循代理设置；原生 Peer、DHT 和 UDP Tracker 使用 BT 引擎网络栈。
 - LSD、UPnP 与 NAT-PMP 受当前 BT 引擎公开接口约束，详见 [Stage 5 实现记录](docs/implementation-notes/005-stage-5-bittorrent.md)。
-

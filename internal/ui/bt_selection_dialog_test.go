@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	btdownload "ghost-downloader-go-win32/internal/btruntime"
 	"ghost-downloader-go-win32/internal/config"
-	btdownload "ghost-downloader-go-win32/internal/download/bt"
 )
 
 func TestBTSelectionModelRejectsEmptySelection(t *testing.T) {

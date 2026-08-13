@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	btdownload "ghost-downloader-go-win32/internal/btruntime"
 	"ghost-downloader-go-win32/internal/core"
-	btdownload "ghost-downloader-go-win32/internal/download/bt"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
