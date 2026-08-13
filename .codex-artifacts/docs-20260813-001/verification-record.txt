@@ -1,0 +1,50 @@
+Documentation verification record
+DATE=2026-08-13
+WORKDIR=F:\Project\04_Desktop_Dev_Utilities\Downloader
+INPUT=README, Chinese user guide, Chinese developer guide
+
+
+COMMAND: powershell -ExecutionPolicy Bypass -File rollback.ps1 -Workspace "F:\Project\04_Desktop_Dev_Utilities\Downloader"
+ROLLBACK=PASS
+FILES_PROCESSED=3
+EXIT_STATUS: 0
+
+COMMAND: Assert README.md and two requested docs are absent at baseline
+BASELINE_ABSENCE_CHECK=PASS
+FILES=3
+EXIT_STATUS: 0
+
+COMMAND: powershell -ExecutionPolicy Bypass -File reapply.ps1 -Workspace "F:\Project\04_Desktop_Dev_Utilities\Downloader"
+REAPPLY=PASS
+FILES_PROCESSED=3
+EXIT_STATUS: 0
+
+COMMAND: Validate UTF-8, headings, balanced fences, local links and snapshot hashes
+MODIFIED_DOC_VALIDATION=PASS
+FILES=3
+LOCAL_LINKS=5
+EXIT_STATUS: 0
+
+COMMAND: git apply --check documentation.patch against empty documentation baseline
+EXIT_STATUS: 0
+
+COMMAND: Expand documentation ZIP and compare SHA-256 manifest
+ZIP_CONTENT_COMPARE=PASS
+EXIT_STATUS: 0
+
+COMMAND: go test -count=1 ./...
+?   	ghost-downloader-go-win32/cmd/gd3win	[no test files]
+?   	ghost-downloader-go-win32/internal/app	[no test files]
+ok  	ghost-downloader-go-win32/internal/browserbridge	0.134s
+ok  	ghost-downloader-go-win32/internal/config	0.055s
+ok  	ghost-downloader-go-win32/internal/core	0.110s
+ok  	ghost-downloader-go-win32/internal/download/bt	16.895s
+ok  	ghost-downloader-go-win32/internal/download/ffmpeg	0.187s
+ok  	ghost-downloader-go-win32/internal/download/http	0.086s
+ok  	ghost-downloader-go-win32/internal/download/m3u8	0.218s
+?   	ghost-downloader-go-win32/internal/logging	[no test files]
+ok  	ghost-downloader-go-win32/internal/ratelimit	0.058s
+ok  	ghost-downloader-go-win32/internal/storage	0.235s
+ok  	ghost-downloader-go-win32/internal/ui	0.064s
+?   	ghost-downloader-go-win32/internal/win32	[no test files]
+EXIT_STATUS: 0

@@ -1,0 +1,15 @@
+# Local reference checkout used for source comparison.
+/reference/
+
+# Go build outputs.
+/*.exe
+/*.dll
+/*.pdb
+/dist/
+/build/
+
+# Runtime data if the app is launched from the workspace.
+/GhostDownloader.log
+/config.db
+/runtimes/
+/temp/

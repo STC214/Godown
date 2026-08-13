@@ -1,0 +1,17 @@
+[
+    {
+        "Path":  "README.md",
+        "Exists":  false,
+        "SHA256":  null
+    },
+    {
+        "Path":  "docs/USER_GUIDE.zh-CN.md",
+        "Exists":  false,
+        "SHA256":  null
+    },
+    {
+        "Path":  "docs/DEVELOPMENT.zh-CN.md",
+        "Exists":  false,
+        "SHA256":  null
+    }
+]

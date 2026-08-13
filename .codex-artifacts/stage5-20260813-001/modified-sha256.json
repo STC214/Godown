@@ -1,0 +1,412 @@
+[
+    {
+        "Path":  "cmd/gd3win/gd3win.manifest",
+        "SHA256":  "5d356a84cde6ed29e39134d98f1f5bf2ffb04ec8c4355632f46ff70096f8c6fa",
+        "Length":  932
+    },
+    {
+        "Path":  "cmd/gd3win/gd3win.rc",
+        "SHA256":  "0512a8581031a54aec8af90671b6644bf691b5ee2d1d7333b5099e4b97e9dc99",
+        "Length":  67
+    },
+    {
+        "Path":  "cmd/gd3win/main.go",
+        "SHA256":  "66f2a01f9ec5a225668f883f0ba2f993549efb70b47f7fe995484155ba315d58",
+        "Length":  214
+    },
+    {
+        "Path":  "cmd/gd3win/rsrc_windows_amd64.syso",
+        "SHA256":  "b1556c266ecc75c4e348ad3d752ab65bc5cf727331666cc6918518afff18a4a6",
+        "Length":  79862
+    },
+    {
+        "Path":  "docs/implementation-notes/000-stage-0.md",
+        "SHA256":  "9f8af69d4e9a66e3dd20fa0b9fd0ffbc3843d96b8649407826422179f882c74f",
+        "Length":  1074
+    },
+    {
+        "Path":  "docs/implementation-notes/001-stage-1-http.md",
+        "SHA256":  "fb1b73ecdcc44f1be48d98dbfa0f6b583c384fbd11a31e7dadd6ed4f16bffed5",
+        "Length":  5309
+    },
+    {
+        "Path":  "docs/implementation-notes/002-stage-2-windows-settings.md",
+        "SHA256":  "f85b3a687068d6cef4fadcc1b04c6de20863732bad9fb957bcf5918dfa43b83f",
+        "Length":  1169
+    },
+    {
+        "Path":  "docs/implementation-notes/003-stage-3-m3u8.md",
+        "SHA256":  "6454de49bd64139564093a55e7912538a6d36e69c11a37ff4a9bf8d3d4620680",
+        "Length":  4284
+    },
+    {
+        "Path":  "docs/implementation-notes/004-stage-4-browser-bridge.md",
+        "SHA256":  "7928c0379fa6e4e5f4601549a5a097ee04656584f2265acd1851a6bac5e624f2",
+        "Length":  3490
+    },
+    {
+        "Path":  "docs/implementation-notes/005-stage-5-bittorrent.md",
+        "SHA256":  "6930b048c4fc88e18cdc24f374e8e4fefb1056d25cedbb0dd9176bc5ec5e65a7",
+        "Length":  4489
+    },
+    {
+        "Path":  "GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md",
+        "SHA256":  "cccf9870a722d62223fcb6b7bfb5e952a4643973c157c72c3d25c89b2d536772",
+        "Length":  38569
+    },
+    {
+        "Path":  "go.mod",
+        "SHA256":  "efbf6bcda847b5750921dd24bfa79e06d539a23d119b7907f852146dc0eb0b70",
+        "Length":  4437
+    },
+    {
+        "Path":  "go.sum",
+        "SHA256":  "a673305fbc129396ba9bdb7e52ee62860df8de08a709a6de003d218b0ecc33d9",
+        "Length":  51492
+    },
+    {
+        "Path":  "internal/app/app.go",
+        "SHA256":  "029f7e123b8db9adff5f4bc007abe6d907ee13634f97243868a915ef97f2f8cf",
+        "Length":  7849
+    },
+    {
+        "Path":  "internal/browserbridge/bridge.go",
+        "SHA256":  "eead17d056b26ab1a36883dca625b104c2a3fa30bf95191c2f827609d25c92a9",
+        "Length":  17151
+    },
+    {
+        "Path":  "internal/browserbridge/bridge_test.go",
+        "SHA256":  "b178f39712677facde3586b6d3cbe99773c609170855d5a587e5b8ff0e0414c6",
+        "Length":  9903
+    },
+    {
+        "Path":  "internal/config/paths.go",
+        "SHA256":  "75e05a9ec48ea4506c1beb699b225a33d804144ddde2dbfafecd35861478475e",
+        "Length":  1160
+    },
+    {
+        "Path":  "internal/config/settings.go",
+        "SHA256":  "3aefe5a9cd5f9fff4aa0d340b1931024206d91ebff36b6aba2e8d2a4ab324d9b",
+        "Length":  5829
+    },
+    {
+        "Path":  "internal/config/settings_test.go",
+        "SHA256":  "2c6033dfc2c67fa5ca77d379cc776fcdf7b8bf24ba44fe05f0d7421315d61566",
+        "Length":  5497
+    },
+    {
+        "Path":  "internal/core/model.go",
+        "SHA256":  "fd9252f3cc8ccf35c4b357e2de5f4a3376508cbfef4bc42cb23292b0e31ed3d1",
+        "Length":  6584
+    },
+    {
+        "Path":  "internal/core/scheduler.go",
+        "SHA256":  "324e1f5e5a92130f7a46205a8f84c54991d6d57f26f79f207c1cc5cad849ea0c",
+        "Length":  11695
+    },
+    {
+        "Path":  "internal/core/scheduler_test.go",
+        "SHA256":  "901b996ad9fd845f27a0bf01f335363297d3ef2e9ed743ac6b7dea744abc6c8d",
+        "Length":  20601
+    },
+    {
+        "Path":  "internal/download/bt/model.go",
+        "SHA256":  "a1932434f3c6cf37c9659994ebb1588461a02b4eb43d071be61ec65580612442",
+        "Length":  11784
+    },
+    {
+        "Path":  "internal/download/bt/parse.go",
+        "SHA256":  "f2d3a242bee02e55e7698d7a72484bbd809c550f6adbe697af9cfa3da2d57108",
+        "Length":  13288
+    },
+    {
+        "Path":  "internal/download/bt/parse_test.go",
+        "SHA256":  "ba545ee68bc7c7680b54300c226109bf9996c84c3be18c152bcb8b866afc87d6",
+        "Length":  7803
+    },
+    {
+        "Path":  "internal/download/bt/resume_storage.go",
+        "SHA256":  "7ee3cdde610e506f6b45770efde06e0bf72c3f50e096ee558a911c8c00d0fd51",
+        "Length":  8332
+    },
+    {
+        "Path":  "internal/download/bt/resume_storage_test.go",
+        "SHA256":  "f5e6103af03a30946d1291498b6c78ebe97a7f3a0babbf05f3683c01d0ec04c0",
+        "Length":  1879
+    },
+    {
+        "Path":  "internal/download/bt/trackers.go",
+        "SHA256":  "bdfb5c8b0eb523c197d81224c62d304e4430e2877ee948adb7ca6af838793e51",
+        "Length":  837
+    },
+    {
+        "Path":  "internal/download/bt/worker.go",
+        "SHA256":  "7615c1d6093c7ebca4b6baa4f6855ea306d4faf0f5ba7a76a376721bafade430",
+        "Length":  25413
+    },
+    {
+        "Path":  "internal/download/bt/worker_test.go",
+        "SHA256":  "e2d5a22750ab123b394923426f8cb9e08446413c77fbcebed6becf86f7d7cb62",
+        "Length":  16407
+    },
+    {
+        "Path":  "internal/download/ffmpeg/merge.go",
+        "SHA256":  "c420f6c8092c6035e779db5c49511b602a2e61a88c781872100ae5aba6f0259c",
+        "Length":  3438
+    },
+    {
+        "Path":  "internal/download/ffmpeg/merge_test.go",
+        "SHA256":  "0ccab5e006149aa57e0f677bd422836ea6dcd5e0ddbe57fdff76bbf64298d1a3",
+        "Length":  769
+    },
+    {
+        "Path":  "internal/download/ffmpeg/worker.go",
+        "SHA256":  "71264a693ec4497f0249dac958595adbf5266446d3714a06858a640deefb91b4",
+        "Length":  5111
+    },
+    {
+        "Path":  "internal/download/ffmpeg/worker_test.go",
+        "SHA256":  "4c7729e8586f7302495a9f146177fa3ec3cff279ef1bef48ee38e69d377c1d98",
+        "Length":  2045
+    },
+    {
+        "Path":  "internal/download/http/client.go",
+        "SHA256":  "da570f65f9f6b531277a06746833e57a59139f26d5436129e50750592473c8fd",
+        "Length":  1792
+    },
+    {
+        "Path":  "internal/download/http/dedupe.go",
+        "SHA256":  "72b5c59c810633440aa2cb69cd9fb30529ed4c2095a08a29800f02598fff44e7",
+        "Length":  1093
+    },
+    {
+        "Path":  "internal/download/http/dedupe_test.go",
+        "SHA256":  "b08894da023535a91542700ca9e9da5e3687e5880b0afc32bbc05a5547f80d77",
+        "Length":  1200
+    },
+    {
+        "Path":  "internal/download/http/errors.go",
+        "SHA256":  "5b15675317689d4e5a30670962d00bf73d3009eb71c44b5320e83c75970434b1",
+        "Length":  153
+    },
+    {
+        "Path":  "internal/download/http/headers.go",
+        "SHA256":  "9c24c3412103a93bca16f63447a731bfaf1360265e87a94d40069d13e6e9ccb5",
+        "Length":  1884
+    },
+    {
+        "Path":  "internal/download/http/headers_test.go",
+        "SHA256":  "ed48275db9b6ecc4fc84932b759bed760c62bd83ccbd88ad96190d908fe94cb5",
+        "Length":  1358
+    },
+    {
+        "Path":  "internal/download/http/probe.go",
+        "SHA256":  "5c984a681f0767290b1519340997c08f351360b844fbb61e09f9da02693443ee",
+        "Length":  10024
+    },
+    {
+        "Path":  "internal/download/http/probe_test.go",
+        "SHA256":  "4c0edbf94e9d920a75c46139f573ccc1ca235dfdc11c20d162d100670f438523",
+        "Length":  1816
+    },
+    {
+        "Path":  "internal/download/http/worker.go",
+        "SHA256":  "b440597209a24bc2717210c44657bc13badd3b9de1942ac5df401d04ce0b1a41",
+        "Length":  10827
+    },
+    {
+        "Path":  "internal/download/http/worker_test.go",
+        "SHA256":  "29df80239864dfa30025ae16b8c704f8a0680dbb644d6d3e24ace5a1c32efb1c",
+        "Length":  6522
+    },
+    {
+        "Path":  "internal/download/m3u8/args.go",
+        "SHA256":  "1ba72bcba48c71dcefba831446c628b4d5b57427e06a059bfc032004c1cf6b9f",
+        "Length":  5979
+    },
+    {
+        "Path":  "internal/download/m3u8/args_test.go",
+        "SHA256":  "b0ce949f5710eaac980b7ce83f2491a7652b4211b4fdc8bd517169abfeec22c2",
+        "Length":  1921
+    },
+    {
+        "Path":  "internal/download/m3u8/client.go",
+        "SHA256":  "73f781a047d9480a492eeaf086dffb64ab804beabe41ff5acefdb9e9822acdec",
+        "Length":  1788
+    },
+    {
+        "Path":  "internal/download/m3u8/manifest.go",
+        "SHA256":  "0bc788c05fff24bd8b0457f0f67fde6fb01264454eaa564a1cd64f9696619be5",
+        "Length":  3926
+    },
+    {
+        "Path":  "internal/download/m3u8/manifest_test.go",
+        "SHA256":  "5cb0d59da1966f2f51bb500f66671bdd001945e137c6f0934767e68fc6e9db7e",
+        "Length":  1591
+    },
+    {
+        "Path":  "internal/download/m3u8/parse.go",
+        "SHA256":  "c8d53a792206b5f9c4c207a42f955acf9fefe0230a1df63999d9b096fb026fdc",
+        "Length":  5080
+    },
+    {
+        "Path":  "internal/download/m3u8/parse_test.go",
+        "SHA256":  "f0bcc1c68f61063abdf0c3f8eddb27988d83ad89aea11c1de599854c641305d4",
+        "Length":  2996
+    },
+    {
+        "Path":  "internal/download/m3u8/progress.go",
+        "SHA256":  "b4a90d7a73dfb5992520eb22bdf6fa7a6696047626e20d646e0ab3d747d3e2bc",
+        "Length":  1896
+    },
+    {
+        "Path":  "internal/download/m3u8/progress_test.go",
+        "SHA256":  "584a3644f8aa38f236056eac1283d04c41233c69cf0097f5b0e4e3be1d6780f6",
+        "Length":  923
+    },
+    {
+        "Path":  "internal/download/m3u8/runtime.go",
+        "SHA256":  "842eb31cd01aceb25c5b9aa741e1d4244a4c6217fea9d251f4938cf191eb2098",
+        "Length":  2557
+    },
+    {
+        "Path":  "internal/download/m3u8/runtime_test.go",
+        "SHA256":  "46ab21ed7a1da17006adf1246a52bd9181ddf009c71620d782df29c47416af4c",
+        "Length":  1213
+    },
+    {
+        "Path":  "internal/download/m3u8/settings.go",
+        "SHA256":  "466c75ef1cde64ac38f44e92ec94c53016faeba12cd81715f5d10bfd7ec93b41",
+        "Length":  3106
+    },
+    {
+        "Path":  "internal/download/m3u8/settings_test.go",
+        "SHA256":  "080020b2ad334d73b6b05a4c5e20d42feca6d7dea42145472e1493f635acd9a9",
+        "Length":  1557
+    },
+    {
+        "Path":  "internal/download/m3u8/worker.go",
+        "SHA256":  "dc9006858ddbb6f45e28fa267628f62cad5b61f62c98883a6f381075e360bbd9",
+        "Length":  5192
+    },
+    {
+        "Path":  "internal/download/m3u8/worker_test.go",
+        "SHA256":  "6c43786d2348b8c056ec46689e59880be0eafb02798cb7fed47b4e16db39018b",
+        "Length":  4091
+    },
+    {
+        "Path":  "internal/logging/logging.go",
+        "SHA256":  "80ee8e7f790a689985eba68bf2c0e2ea11a825c0239b7a087250c526a888e7a1",
+        "Length":  544
+    },
+    {
+        "Path":  "internal/ratelimit/limiter.go",
+        "SHA256":  "6bd2b553f9ce0274b2957ecea5f3f660f07b7cd37edb3c83217ed7178ce55af0",
+        "Length":  1748
+    },
+    {
+        "Path":  "internal/ratelimit/limiter_test.go",
+        "SHA256":  "29fcac8d08c02e1d447f24f69d48bc39e0e3e3f5ffe84539e4c062b21abb7292",
+        "Length":  629
+    },
+    {
+        "Path":  "internal/storage/json_store.go",
+        "SHA256":  "364ac9786b247a88d8a720de000d36ae7c768035c0f3d63d71cc317ec4d0a10a",
+        "Length":  903
+    },
+    {
+        "Path":  "internal/storage/sqlite_config.go",
+        "SHA256":  "d237b94f797fa022ccb4030f97e3dc621929ddccc7c6f2375f1fa729162d18fd",
+        "Length":  1751
+    },
+    {
+        "Path":  "internal/storage/sqlite_config_test.go",
+        "SHA256":  "dc2abd71c17a61fa57d470f6bccbbac2b5047690b693689af02e21fffd992ec7",
+        "Length":  1743
+    },
+    {
+        "Path":  "internal/storage/sqlite_store.go",
+        "SHA256":  "6c1f554add73289abcb9586465a3a271672b855a6129d82b31186aa6c3d36cf7",
+        "Length":  2456
+    },
+    {
+        "Path":  "internal/storage/sqlite_store_test.go",
+        "SHA256":  "b85ee6041fb304506f79e3e74a8940c00cf270577d42bb257f487a75aae2632d",
+        "Length":  944
+    },
+    {
+        "Path":  "internal/ui/app.go",
+        "SHA256":  "bce4990e624f17ccd6c5a3d4f64d147b84dfee563a9ae600fa6c2649a79209c1",
+        "Length":  25546
+    },
+    {
+        "Path":  "internal/ui/browser_pairing.go",
+        "SHA256":  "85558c1069f9e319aab634e13b4ad08180c616f11cc10cdd0c1ac753488875d8",
+        "Length":  1447
+    },
+    {
+        "Path":  "internal/ui/bt_selection_dialog.go",
+        "SHA256":  "34fe51cf3546599a527d8c508eb9ef2e1199db7b308dfa5635cc96f749375178",
+        "Length":  5713
+    },
+    {
+        "Path":  "internal/ui/bt_selection_dialog_test.go",
+        "SHA256":  "7d9c5705aa806ae10af10bb475b59f11c5d979448153e0226f377ce962ec8d46",
+        "Length":  3345
+    },
+    {
+        "Path":  "internal/ui/dispatcher.go",
+        "SHA256":  "fe549f369015559f1e9bc0265e070d594e7f79d4c2c02f3a89b5e48e3c3dfbe7",
+        "Length":  638
+    },
+    {
+        "Path":  "internal/ui/icon.go",
+        "SHA256":  "d165a0e2d5d3541c7602eb32315994c1e7583987cf0d90c202f69c50c7e0006b",
+        "Length":  192
+    },
+    {
+        "Path":  "internal/ui/notifications.go",
+        "SHA256":  "cfc50c960b11ba1d7722832c60a45c7f0f21809fff4766ae0663ec6787ab50e9",
+        "Length":  2241
+    },
+    {
+        "Path":  "internal/ui/notifications_test.go",
+        "SHA256":  "8f725196e7dbb43803d661e2305c0f273fd5d82bb29e92638c0d910cd794e238",
+        "Length":  1941
+    },
+    {
+        "Path":  "internal/ui/settings_dialog.go",
+        "SHA256":  "11687caecca756b2cb47d6252342210d59f7c4235018bc1c994de177ce34bc46",
+        "Length":  18102
+    },
+    {
+        "Path":  "internal/ui/settings_dialog_test.go",
+        "SHA256":  "a253192cc4450a3a377292676dc3117d00dc117b65c92c02bf0535ad6468dc78",
+        "Length":  8400
+    },
+    {
+        "Path":  "internal/ui/task_table_model.go",
+        "SHA256":  "68c92642e0c2db8b99a1db763e0fe39508db0a409233feb2e9ca956647c4d7ab",
+        "Length":  4512
+    },
+    {
+        "Path":  "internal/ui/task_table_model_test.go",
+        "SHA256":  "51b73620c8a09c277212ef8f10c411c24a6d8ad6b6c1c0a27f61d5c51a729a02",
+        "Length":  1812
+    },
+    {
+        "Path":  "internal/ui/tray.go",
+        "SHA256":  "e93d1a2daa64c64758b263a8c006dd5808f27d131dd8a3dfc8b4c07fdcc23c65",
+        "Length":  3684
+    },
+    {
+        "Path":  "internal/win32/dpi.go",
+        "SHA256":  "f0609130b15f7d533294a35ee4f68c4bfb58cc7403f974e950205c2bfac88b84",
+        "Length":  1002
+    },
+    {
+        "Path":  "internal/win32/single_instance.go",
+        "SHA256":  "19062b643351759830f7949e46274e4f150de540def062851661b0c0565908ee",
+        "Length":  835
+    }
+]
