@@ -112,3 +112,38 @@ func TestTaskTableModelToggleSort(t *testing.T) {
 		t.Fatalf("descending first task = %q, want b", task.ID)
 	}
 }
+
+func TestTaskTableModelCountsLookupAndValues(t *testing.T) {
+	model := newTaskTableModel()
+	model.SetTasks([]core.TaskSnapshot{
+		{ID: "running", Title: "running.bin", Status: core.StatusRunning, Progress: 12.5, FileSize: 100, Received: 25, Speed: 10, Path: `D:\One`, CreatedAt: time.Unix(3, 0)},
+		{ID: "completed", Title: "completed.bin", Status: core.StatusCompleted, Progress: 100, FileSize: 200, Received: 200, Path: `D:\Two`, CreatedAt: time.Unix(2, 0)},
+		{ID: "failed", Title: "failed.bin", Status: core.StatusFailed, Received: 5, Path: `D:\Three`, CreatedAt: time.Unix(1, 0)},
+	})
+
+	all, active, completed, failed := model.Counts()
+	if all != 3 || active != 2 || completed != 1 || failed != 1 {
+		t.Fatalf("counts = %d/%d/%d/%d, want 3/2/1/1", all, active, completed, failed)
+	}
+	if task, ok := model.TaskByID("completed"); !ok || task.Title != "completed.bin" {
+		t.Fatalf("TaskByID(completed) = %#v, %v", task, ok)
+	}
+	if _, ok := model.TaskByID("missing"); ok {
+		t.Fatal("TaskByID found a missing task")
+	}
+
+	for column := 0; column < 6; column++ {
+		if err := model.Sort(column, walk.SortAscending); err != nil {
+			t.Fatalf("Sort(%d): %v", column, err)
+		}
+		if gotColumn, order := model.SortState(); gotColumn != column || order != walk.SortAscending {
+			t.Fatalf("sort state = (%d,%v), want (%d,ascending)", gotColumn, order, column)
+		}
+	}
+	if got := model.Value(-1, 0); got != "" {
+		t.Fatalf("Value(-1,0) = %#v, want empty", got)
+	}
+	if got := model.Value(0, 99); got != "" {
+		t.Fatalf("Value(0,99) = %#v, want empty", got)
+	}
+}

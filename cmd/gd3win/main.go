@@ -13,12 +13,22 @@ import (
 	"ghost-downloader-go-win32/internal/win32"
 )
 
+var (
+	runApplication         = app.Run
+	showAlreadyRunningFunc = showAlreadyRunning
+	showStartupErrorFunc   = showStartupError
+)
+
 func main() {
-	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-version") {
+	if isVersionRequest(os.Args[1:]) {
 		fmt.Println(buildinfo.Version)
 		return
 	}
 	os.Exit(run())
+}
+
+func isVersionRequest(arguments []string) bool {
+	return len(arguments) == 1 && (arguments[0] == "--version" || arguments[0] == "-version")
 }
 
 func run() (exitCode int) {
@@ -35,13 +45,13 @@ func run() (exitCode int) {
 			}
 		}
 	}()
-	if err := app.Run(); err != nil {
+	if err := runApplication(); err != nil {
 		if errors.Is(err, win32.ErrAlreadyRunning) {
-			showAlreadyRunning()
+			showAlreadyRunningFunc()
 			return 0
 		}
 		slog.Error("application exited with error", "error", err)
-		showStartupError(err)
+		showStartupErrorFunc(err)
 		return 1
 	}
 	return 0

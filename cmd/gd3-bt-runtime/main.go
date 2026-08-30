@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 
@@ -14,20 +15,20 @@ import (
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	if err := run(os.Args[1:], os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(arguments []string) error {
+func run(arguments []string, input io.Reader, output io.Writer) error {
 	if len(arguments) != 1 {
 		return errors.New("usage: gd3-bt-runtime.exe <resolve|run|reset>")
 	}
 	switch arguments[0] {
 	case "resolve":
 		var request btruntime.ResolveRequest
-		if err := json.NewDecoder(os.Stdin).Decode(&request); err != nil {
+		if err := json.NewDecoder(input).Decode(&request); err != nil {
 			return err
 		}
 		options := request.Options
@@ -41,32 +42,32 @@ func run(arguments []string) error {
 			SeedTimeLimitMinutes: options.SeedTimeLimitMinutes, ExtraTrackers: options.ExtraTrackers,
 			SaveMagnetTorrentFile: options.SaveMagnetTorrentFile,
 		})
-		return encodeResult(task, err)
+		return encodeResult(output, task, err)
 	case "reset":
 		var task core.Task
-		if err := json.NewDecoder(os.Stdin).Decode(&task); err != nil {
+		if err := json.NewDecoder(input).Decode(&task); err != nil {
 			return err
 		}
 		reset, err := (btdownload.Worker{}).ResetTask(task)
-		return encodeResult(reset, err)
+		return encodeResult(output, reset, err)
 	case "run":
-		return runWorker()
+		return runWorker(input, output)
 	default:
 		return fmt.Errorf("unknown action %q", arguments[0])
 	}
 }
 
-func encodeResult(task core.Task, err error) error {
+func encodeResult(output io.Writer, task core.Task, err error) error {
 	message := btruntime.RuntimeMessage{Task: &task, Done: true}
 	if err != nil {
 		message.Task = nil
 		message.Error = err.Error()
 	}
-	return json.NewEncoder(os.Stdout).Encode(message)
+	return json.NewEncoder(output).Encode(message)
 }
 
-func runWorker() error {
-	decoder := json.NewDecoder(os.Stdin)
+func runWorker(input io.Reader, output io.Writer) error {
+	decoder := json.NewDecoder(input)
 	var task core.Task
 	if err := decoder.Decode(&task); err != nil {
 		return err
@@ -79,7 +80,7 @@ func runWorker() error {
 		cancel()
 	}()
 
-	encoder := json.NewEncoder(os.Stdout)
+	encoder := json.NewEncoder(output)
 	var outputMu sync.Mutex
 	emit := func(message btruntime.RuntimeMessage) {
 		outputMu.Lock()
