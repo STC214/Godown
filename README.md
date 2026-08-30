@@ -14,7 +14,7 @@ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版�
 - 任务持久化、并发调度、托盘、通知及浏览器桥接。
 - HTTP(S)/SOCKS5 代理、自定义请求头与 Cookie。
 - JSON-RPC stdio 插件发现、URL 匹配与解析，带进程超时和崩溃隔离。
-- 系统/亮色/暗色主题、更新检查、日志入口及崩溃报告。
+- 系统/亮色/暗色主题、带 SHA-256 校验和失败回滚的便携自动更新、日志入口及崩溃报告。
 
 ## 快速开始
 
@@ -45,7 +45,7 @@ go mod download
 .\scripts\package-portable.ps1 -Version 1.0.0
 ```
 
-脚本生成 `release/GhostDownloader-<version>-windows-x64-portable.zip`、SHA-256 文件及包内 `release-manifest.json`。便携包不写注册表，解压后直接运行；更新时退出程序并覆盖两个 EXE。
+脚本生成 `release/GhostDownloader-<version>-windows-x64-portable.zip`、SHA-256 文件及包内 `release-manifest.json`。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
 
 ### 添加下载
 

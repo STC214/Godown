@@ -33,7 +33,7 @@ func TestCheckerLatestRelease(t *testing.T) {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"tag_name":"v1.4.0","name":"Release 1.4","html_url":"https://example.test/release","body":"notes"}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v1.4.0","name":"Release 1.4","html_url":"https://example.test/release","body":"notes","assets":[{"name":"GhostDownloader-1.4.0-windows-x64-portable.zip","browser_download_url":"https://example.test/app.zip","size":123},{"name":"GhostDownloader-1.4.0-windows-x64-portable.zip.sha256","browser_download_url":"https://example.test/app.zip.sha256","size":100}]}`))
 	}))
 	defer server.Close()
 	result, err := (Checker{CurrentVersion: "1.3.2", Owner: "owner", Repository: "repo", APIBaseURL: server.URL}).Check(context.Background())
@@ -42,6 +42,9 @@ func TestCheckerLatestRelease(t *testing.T) {
 	}
 	if !result.Newer || result.Version != "1.4.0" || result.URL != "https://example.test/release" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+	if !result.HasPortableUpdate() || len(result.Assets) != 2 {
+		t.Fatalf("portable assets missing: %#v", result.Assets)
 	}
 }
 

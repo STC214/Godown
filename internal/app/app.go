@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -123,6 +125,17 @@ func Run() error {
 		BrowserBridge: bridge,
 		CheckForUpdate: func(ctx context.Context) (updatecheck.Release, error) {
 			return (updatecheck.Checker{CurrentVersion: buildinfo.Version, Owner: buildinfo.GitHubOwner, Repository: buildinfo.GitHubRepo}).Check(ctx)
+		},
+		InstallUpdate: func(ctx context.Context, release updatecheck.Release) error {
+			prepared, err := (updatecheck.PortableUpdater{}).Prepare(ctx, release, paths.TempDir)
+			if err != nil {
+				return err
+			}
+			executable, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			return updatecheck.LaunchPortableUpdater(prepared, filepath.Dir(executable), executable, os.Getpid())
 		},
 		ParseSource: func(ctx context.Context, source string, settings config.Settings, headers map[string]string) (core.Task, error) {
 			return createTaskFromSource(ctx, source, settings, headers, plugins)

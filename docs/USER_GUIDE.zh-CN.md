@@ -113,7 +113,7 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈�
 ## 9. 主题、更新与日志
 
 - 在 **Settings → Appearance → Theme** 选择 System、Light 或 Dark；保存后主窗口立即刷新主题。
-- 选择主窗口顶部的 **Check Updates** 查询最新发布版本。有新版本时会打开发布页面下载便携 ZIP。
+- 选择主窗口顶部的 **Check Updates** 查询最新发布版本。如果 Release 同时包含 `windows-x64-portable.zip` 和对应 `.sha256`，应用会下载并验证文件，退出后自动覆盖便携目录并重新启动；缺少匹配资产时打开发布页面。
 - 选择 **Open Logs** 可定位 `%AppData%\GhostDownloaderGo\GhostDownloader.log`。
 - 未处理异常会额外生成 `%AppData%\GhostDownloaderGo\crash-YYYYMMDD-HHMMSS.log`，其中包含 panic 和调用栈。
 

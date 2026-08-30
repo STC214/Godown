@@ -33,6 +33,7 @@ type Options struct {
 	BrowserBridge  *browserbridge.Bridge
 	ParseSource    func(context.Context, string, config.Settings, map[string]string) (core.Task, error)
 	CheckForUpdate func(context.Context) (updatecheck.Release, error)
+	InstallUpdate  func(context.Context, updatecheck.Release) error
 }
 
 func Run(options Options) error {
@@ -160,6 +161,28 @@ func Run(options Options) error {
 				}
 				if !release.Newer {
 					statusLabel.SetText("You are running the latest version (" + options.AppVersion + ").")
+					return
+				}
+				if options.InstallUpdate != nil && release.HasPortableUpdate() {
+					message := fmt.Sprintf("Ghost Downloader %s is available. Download, verify, replace the portable files, and restart?", release.Version)
+					if walk.MsgBox(mainWindow, "Portable Update", message, walk.MsgBoxYesNo|walk.MsgBoxIconInformation) != walk.DlgCmdYes {
+						statusLabel.SetText("Update available: " + release.Version)
+						return
+					}
+					statusLabel.SetText("Downloading and verifying update " + release.Version + "...")
+					go func(release updatecheck.Release) {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+						defer cancel()
+						err := options.InstallUpdate(ctx, release)
+						app.Post(func() {
+							if err != nil {
+								statusLabel.SetText("Portable update failed: " + err.Error())
+								return
+							}
+							statusLabel.SetText("Update verified. Closing to replace files...")
+							walk.App().Exit(0)
+						})
+					}(release)
 					return
 				}
 				message := fmt.Sprintf("Ghost Downloader %s is available. Open the release page?", release.Version)

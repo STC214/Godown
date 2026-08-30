@@ -17,6 +17,7 @@ try {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Copy-Item -LiteralPath README.md -Destination (Join-Path $staging "README.md") -Force
     Copy-Item -LiteralPath docs/USER_GUIDE.zh-CN.md -Destination (Join-Path $staging "USER_GUIDE.zh-CN.md") -Force
+    Copy-Item -LiteralPath scripts/update-portable.ps1 -Destination (Join-Path $staging "update-portable.ps1") -Force
 
     $files = Get-ChildItem -LiteralPath $staging -File | Where-Object Name -ne "release-manifest.json" | Sort-Object Name
     $manifest = [ordered]@{

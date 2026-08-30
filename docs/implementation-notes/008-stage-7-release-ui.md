@@ -4,7 +4,8 @@
 
 - Build version injection through `internal/buildinfo` and Go linker flags.
 - GitHub latest-release checking with bounded responses, request timeout and semantic-version comparison.
-- Main-window update action that reports the current version and opens a newer release page after confirmation.
+- Main-window update action that discovers matching portable ZIP/checksum assets, downloads with size limits, verifies the SHA-256 and every package-manifest entry, then launches the replacement helper.
+- Exit-time portable replacement with manifest path validation, backups, failure rollback and application relaunch. Releases without portable assets fall back to the release page.
 - Panic recovery at the executable boundary with timestamped crash report and Go stack trace.
 - Main-window action that opens/selects the application log file.
 - System, light and dark theme setting. Windows title bar and existing native child controls receive the selected Explorer theme.
@@ -14,7 +15,7 @@
 
 ## Packaging Decision
 
-The release target is portable ZIP only. No installer project is produced. Updating consists of closing the application and replacing the two sibling executables from a verified portable archive.
+The release target is portable ZIP only. No installer project is produced. Interactive updating downloads a verified portable archive, exits, replaces the package files with rollback protection, and relaunches the application.
 
 ## Verification
 

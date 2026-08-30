@@ -20,6 +20,13 @@ type Release struct {
 	URL     string
 	Notes   string
 	Newer   bool
+	Assets  []Asset
+}
+
+type Asset struct {
+	Name        string
+	DownloadURL string
+	Size        int64
 }
 
 type Checker struct {
@@ -71,6 +78,11 @@ func (c Checker) Check(ctx context.Context) (Release, error) {
 		HTMLURL string `json:"html_url"`
 		Body    string `json:"body"`
 		Draft   bool   `json:"draft"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+			Size               int64  `json:"size"`
+		} `json:"assets"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return Release{}, fmt.Errorf("decode latest release: %w", err)
@@ -82,7 +94,13 @@ func (c Checker) Check(ctx context.Context) (Release, error) {
 	if err != nil {
 		return Release{}, err
 	}
-	return Release{Version: strings.TrimPrefix(payload.TagName, "v"), Name: payload.Name, URL: payload.HTMLURL, Notes: payload.Body, Newer: newer}, nil
+	assets := make([]Asset, 0, len(payload.Assets))
+	for _, asset := range payload.Assets {
+		if strings.TrimSpace(asset.Name) != "" && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
+			assets = append(assets, Asset{Name: asset.Name, DownloadURL: asset.BrowserDownloadURL, Size: asset.Size})
+		}
+	}
+	return Release{Version: strings.TrimPrefix(payload.TagName, "v"), Name: payload.Name, URL: payload.HTMLURL, Notes: payload.Body, Newer: newer, Assets: assets}, nil
 }
 
 func IsNewer(current, candidate string) (bool, error) {
