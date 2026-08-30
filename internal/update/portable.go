@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	appwin32 "ghost-downloader-go-win32/internal/win32"
 )
 
 const (
@@ -241,6 +243,7 @@ func LaunchPortableUpdater(prepared PreparedUpdate, installDir, executable strin
 	}
 	command := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
 		"-Archive", prepared.ArchivePath, "-InstallDir", installDir, "-WaitPID", fmt.Sprint(waitPID), "-Relaunch", executable)
+	appwin32.HideCommandWindow(command)
 	command.Dir = installDir
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start portable updater: %w", err)

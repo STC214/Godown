@@ -1,6 +1,7 @@
 package win32
 
 import (
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -35,17 +36,59 @@ func DarkModeEnabled(mode string) bool {
 func ApplyTheme(hwnd win.HWND, mode string) {
 	dark := DarkModeEnabled(mode)
 	value := int32(0)
-	theme := syscall.StringToUTF16Ptr("Explorer")
+	windowTheme := syscall.StringToUTF16Ptr("Explorer")
 	if dark {
 		value = 1
-		theme = syscall.StringToUTF16Ptr("DarkMode_Explorer")
+		windowTheme = syscall.StringToUTF16Ptr("DarkMode_Explorer")
 	}
 	_, _, _ = dwmSetWindowAttribute.Call(uintptr(hwnd), dwmwaUseImmersiveDarkMode, uintptr(unsafe.Pointer(&value)), unsafe.Sizeof(value))
-	_ = win.SetWindowTheme(hwnd, theme, nil)
-	callback := syscall.NewCallback(func(child uintptr, _ uintptr) uintptr {
-		_ = win.SetWindowTheme(win.HWND(child), theme, nil)
-		return 1
+	_ = win.SetWindowTheme(hwnd, windowTheme, nil)
+	forEachChildWindow(hwnd, func(childHWND win.HWND) {
+		theme := windowTheme
+		if dark {
+			switch strings.ToLower(windowClassName(childHWND)) {
+			case "combobox":
+				theme = syscall.StringToUTF16Ptr("DarkMode_CFD")
+			case "syslistview32", "sysheader32":
+				theme = syscall.StringToUTF16Ptr("DarkMode_ItemsView")
+			}
+		}
+		_ = win.SetWindowTheme(childHWND, theme, nil)
 	})
-	win.EnumChildWindows(hwnd, callback, 0)
+	ApplyControlPalette(hwnd, dark)
 	win.RedrawWindow(hwnd, nil, 0, win.RDW_INVALIDATE|win.RDW_ALLCHILDREN|win.RDW_FRAME)
+}
+
+func ApplyControlPalette(hwnd win.HWND, dark bool) {
+	background := win.RGB(255, 255, 255)
+	text := win.RGB(17, 17, 17)
+	if dark {
+		background = win.RGB(30, 31, 34)
+		text = win.RGB(242, 243, 245)
+	}
+	apply := func(child win.HWND) {
+		if strings.EqualFold(windowClassName(child), "SysListView32") {
+			win.SendMessage(child, win.LVM_SETBKCOLOR, 0, uintptr(background))
+			win.SendMessage(child, win.LVM_SETTEXTBKCOLOR, 0, uintptr(background))
+			win.SendMessage(child, win.LVM_SETTEXTCOLOR, 0, uintptr(text))
+		}
+	}
+	apply(hwnd)
+	forEachChildWindow(hwnd, apply)
+}
+
+func forEachChildWindow(parent win.HWND, visit func(win.HWND)) {
+	for child := win.GetWindow(parent, win.GW_CHILD); child != 0; child = win.GetWindow(child, win.GW_HWNDNEXT) {
+		visit(child)
+		forEachChildWindow(child, visit)
+	}
+}
+
+func windowClassName(hwnd win.HWND) string {
+	var buffer [128]uint16
+	length, err := win.GetClassName(hwnd, &buffer[0], len(buffer))
+	if err != nil || length == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buffer[:length])
 }

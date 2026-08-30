@@ -15,17 +15,23 @@ type SingleInstance struct {
 }
 
 func AcquireSingleInstance() (*SingleInstance, error) {
-	name, err := windows.UTF16PtrFromString(singleInstanceMutexName)
+	return acquireNamedSingleInstance(singleInstanceMutexName)
+}
+
+func acquireNamedSingleInstance(mutexName string) (*SingleInstance, error) {
+	name, err := windows.UTF16PtrFromString(mutexName)
 	if err != nil {
 		return nil, err
 	}
 	handle, err := windows.CreateMutex(nil, false, name)
+	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+		if handle != 0 {
+			_ = windows.CloseHandle(handle)
+		}
+		return nil, ErrAlreadyRunning
+	}
 	if err != nil {
 		return nil, err
-	}
-	if windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
-		_ = windows.CloseHandle(handle)
-		return nil, ErrAlreadyRunning
 	}
 	return &SingleInstance{handle: handle}, nil
 }

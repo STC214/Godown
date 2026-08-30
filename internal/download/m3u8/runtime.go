@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	appwin32 "ghost-downloader-go-win32/internal/win32"
 )
 
 type RuntimeInfo struct {
@@ -80,7 +82,9 @@ func probeExecutable(ctx context.Context, installDir, executable string, version
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(probeCtx, executable, versionArg).CombinedOutput()
+	command := exec.CommandContext(probeCtx, executable, versionArg)
+	appwin32.HideCommandWindow(command)
+	output, err := command.CombinedOutput()
 	if err != nil && !errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
 		return info
 	}

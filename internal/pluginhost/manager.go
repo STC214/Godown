@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"sync/atomic"
+
+	appwin32 "ghost-downloader-go-win32/internal/win32"
 )
 
 const (
@@ -146,6 +148,7 @@ func (m *Manager) call(parent context.Context, plugin *Plugin, method string, pa
 	}
 	args := append(append([]string{}, plugin.Manifest.Args...), "--stdio")
 	cmd := exec.CommandContext(ctx, executable, args...)
+	appwin32.HideCommandWindow(cmd)
 	cmd.Dir = plugin.ManifestDir
 	cmd.Env = os.Environ()
 	for key, value := range plugin.Manifest.Env {

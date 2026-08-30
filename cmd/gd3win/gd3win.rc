@@ -1,2 +1,5 @@
 1 ICON "assets/app.ico"
-1 RT_MANIFEST "cmd/gd3win/gd3win.manifest"
+// windres does not define RT_MANIFEST like Microsoft's rc.exe does.  Using the
+// symbolic token creates a custom named resource, so Windows never activates
+// Common Controls v6 and Walk fails while registering its first tooltip.
+1 24 "cmd/gd3win/gd3win.manifest"

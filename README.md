@@ -2,7 +2,7 @@
 
 Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
 
-> 当前处于按蓝图分阶段实现和验证的开发阶段。阶段进度以 [`docs/implementation-notes`](docs/implementation-notes/) 中的实现记录为准。
+> 当前实现进度为 Stage 14：完成便携发布、紧凑界面、应用图标、暗色主题和发布加固。阶段进度以 [`docs/implementation-notes`](docs/implementation-notes/) 中的实现记录为准。
 
 ## 已实现功能
 
@@ -21,7 +21,7 @@ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版�
 ### 环境
 
 - Windows 10/11 x64
-- Go 1.26.1（从源码构建时）
+- Go 1.26.6 或更新的 1.26.x 版本（从源码构建时）
 - M3U8 任务另需 `N_m3u8DL-RE` 和 FFmpeg；可在应用设置中指定安装目录
 
 ### 构建与运行
@@ -45,7 +45,7 @@ go mod download
 .\scripts\package-portable.ps1 -Version 1.0.0
 ```
 
-脚本生成 `release/GhostDownloader-<version>-windows-x64-portable.zip`、SHA-256 文件及包内 `release-manifest.json`。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
+脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
 
 ### 添加下载
 

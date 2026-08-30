@@ -34,7 +34,7 @@ func TestSettingsNormalizedFillsM3U8Defaults(t *testing.T) {
 	if settings.BrowserPairToken == "" || settings.BrowserBridgePort != DefaultBrowserBridgePort {
 		t.Fatalf("unexpected browser defaults: %#v", settings)
 	}
-	if settings.ThemeMode != "system" {
+	if settings.ThemeMode != "dark" {
 		t.Fatalf("theme mode=%q", settings.ThemeMode)
 	}
 }
@@ -46,7 +46,7 @@ func TestSettingsNormalizedThemeModes(t *testing.T) {
 			t.Fatalf("theme mode %q normalized to %q", mode, got)
 		}
 	}
-	if got := (Settings{ThemeMode: "invalid"}).Normalized(paths).ThemeMode; got != "system" {
+	if got := (Settings{ThemeMode: "invalid"}).Normalized(paths).ThemeMode; got != "dark" {
 		t.Fatalf("invalid theme normalized to %q", got)
 	}
 }

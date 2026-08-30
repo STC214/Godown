@@ -29,6 +29,7 @@ type taskTableModel struct {
 	filter     taskFilter
 	sortColumn int
 	sortOrder  walk.SortOrder
+	darkMode   bool
 }
 
 func newTaskTableModel() *taskTableModel {
@@ -78,6 +79,18 @@ func (m *taskTableModel) Sort(col int, order walk.SortOrder) error {
 	return m.SorterBase.Sort(col, order)
 }
 
+func (m *taskTableModel) ToggleSort(col int) error {
+	order := walk.SortAscending
+	if m.sortColumn == col && m.sortOrder == walk.SortAscending {
+		order = walk.SortDescending
+	}
+	return m.Sort(col, order)
+}
+
+func (m *taskTableModel) SortState() (int, walk.SortOrder) {
+	return m.sortColumn, m.sortOrder
+}
+
 func (m *taskTableModel) SetTasks(tasks []core.TaskSnapshot) {
 	m.all = append(m.all[:0], tasks...)
 	m.rebuild()
@@ -98,6 +111,25 @@ func (m *taskTableModel) SetFilter(filter taskFilter) {
 	}
 	m.filter = filter
 	m.rebuild()
+}
+
+func (m *taskTableModel) SetDarkMode(enabled bool) {
+	if m.darkMode == enabled {
+		return
+	}
+	m.darkMode = enabled
+	m.PublishRowsReset()
+}
+
+func (m *taskTableModel) StyleCell(style *walk.CellStyle) {
+	if !m.darkMode {
+		return
+	}
+	style.BackgroundColor = walk.RGB(30, 31, 34)
+	if style.Row()%2 == 1 {
+		style.BackgroundColor = walk.RGB(38, 39, 43)
+	}
+	style.TextColor = walk.RGB(242, 243, 245)
 }
 
 func (m *taskTableModel) TaskAt(row int) (core.TaskSnapshot, bool) {

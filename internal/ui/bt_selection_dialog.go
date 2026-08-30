@@ -6,7 +6,6 @@ import (
 
 	btdownload "ghost-downloader-go-win32/internal/btruntime"
 	"ghost-downloader-go-win32/internal/core"
-	appwin32 "ghost-downloader-go-win32/internal/win32"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -241,7 +240,11 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 	if len(themeMode) > 0 {
 		mode = themeMode[0]
 	}
-	appwin32.ApplyTheme(dialog.Handle(), mode)
+	themeStyle, err := newWindowThemeStyle(dialog, mode)
+	if err != nil {
+		return task, false, err
+	}
+	defer themeStyle.Dispose()
 	result := dialog.Run()
 	if result != walk.DlgCmdOK {
 		return task, false, nil

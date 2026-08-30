@@ -55,7 +55,7 @@ type Settings struct {
 
 func DefaultSettings(paths Paths) Settings {
 	return Settings{
-		ThemeMode:                  "system",
+		ThemeMode:                  "dark",
 		DownloadDir:                paths.DownloadDir,
 		BlockNum:                   8,
 		RetryCount:                 3,

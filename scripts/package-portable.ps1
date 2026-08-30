@@ -9,6 +9,14 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $releaseRoot = [IO.Path]::GetFullPath((Join-Path $root $OutputDir))
 $staging = Join-Path $releaseRoot "GhostDownloader-$Version-windows-x64"
 [IO.Directory]::CreateDirectory($releaseRoot) | Out-Null
+$releasePrefix = $releaseRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$resolvedStaging = [IO.Path]::GetFullPath($staging)
+if (-not $resolvedStaging.StartsWith($releasePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Staging path escaped release directory: $resolvedStaging"
+}
+if (Test-Path -LiteralPath $resolvedStaging) {
+    Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
+}
 [IO.Directory]::CreateDirectory($staging) | Out-Null
 
 Push-Location $root
@@ -40,6 +48,9 @@ try {
     "$zipHash  $([IO.Path]::GetFileName($zip))" | Set-Content -LiteralPath ($zip + ".sha256") -Encoding ascii
 } finally {
     Pop-Location
+    if (Test-Path -LiteralPath $resolvedStaging) {
+        Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
+    }
 }
 
 Write-Output "PACKAGE=PASS"

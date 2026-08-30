@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"ghost-downloader-go-win32/internal/buildinfo"
 	"ghost-downloader-go-win32/internal/config"
 	"ghost-downloader-go-win32/internal/logging"
+	"ghost-downloader-go-win32/internal/win32"
 )
 
 func main() {
@@ -34,7 +36,12 @@ func run() (exitCode int) {
 		}
 	}()
 	if err := app.Run(); err != nil {
+		if errors.Is(err, win32.ErrAlreadyRunning) {
+			showAlreadyRunning()
+			return 0
+		}
 		slog.Error("application exited with error", "error", err)
+		showStartupError(err)
 		return 1
 	}
 	return 0

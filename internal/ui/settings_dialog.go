@@ -7,7 +7,6 @@ import (
 
 	"ghost-downloader-go-win32/internal/config"
 	httpdownload "ghost-downloader-go-win32/internal/download/http"
-	appwin32 "ghost-downloader-go-win32/internal/win32"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -326,7 +325,20 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 	if err := dialog.Create(owner); err != nil {
 		return current, false, err
 	}
-	appwin32.ApplyTheme(dlg.Handle(), current.ThemeMode)
+	themeStyle, err := newWindowThemeStyle(
+		dlg,
+		current.ThemeMode,
+		downloadDirEdit, proxyEdit, blockEdit, maxConcurrentEdit, retryEdit, speedLimitEdit,
+		browserTokenEdit, browserPortEdit, ffmpegInstallDirEdit,
+		btListenPortEdit, btMetadataTimeoutEdit, btConnectionsLimitEdit,
+		btDownloadRateEdit, btUploadRateEdit, btSeedRatioEdit, btSeedTimeEdit, btTrackersEdit,
+		m3u8InstallDirEdit, m3u8OutputFormatEdit, m3u8ThreadEdit, m3u8RetryEdit,
+		m3u8TimeoutEdit, m3u8SubtitleFormatEdit, headersEdit, cookiesEdit,
+	)
+	if err != nil {
+		return current, false, fmt.Errorf("style settings window: %w", err)
+	}
+	defer themeStyle.Dispose()
 	result := dlg.Run()
 	return next, result == walk.DlgCmdOK, nil
 }

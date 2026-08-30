@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"ghost-downloader-go-win32/internal/core"
+	appwin32 "ghost-downloader-go-win32/internal/win32"
 )
 
 type Worker struct{}
@@ -30,6 +31,7 @@ func (Worker) Run(ctx context.Context, task core.Task, report func(core.Progress
 	}
 
 	cmd := exec.Command(execPath, options.BuildArgs()...)
+	appwin32.HideCommandWindow(cmd)
 	cmd.Dir = filepath.Dir(execPath)
 	if boolState(task.Stage.State, "keepImageSegments", false) {
 		cmd.Env = append(os.Environ(), "RE_KEEP_IMAGE_SEGMENTS=1")
@@ -223,7 +225,9 @@ func killProcessTree(cmd *exec.Cmd) {
 		return
 	}
 	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill.exe", "/T", "/F", "/PID", fmt.Sprint(cmd.Process.Pid)).Run()
+		kill := exec.Command("taskkill.exe", "/T", "/F", "/PID", fmt.Sprint(cmd.Process.Pid))
+		appwin32.HideCommandWindow(kill)
+		_ = kill.Run()
 		return
 	}
 	_ = cmd.Process.Kill()

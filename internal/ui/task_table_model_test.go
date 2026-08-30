@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ghost-downloader-go-win32/internal/core"
+	"github.com/lxn/walk"
 )
 
 func TestTaskTableModelHandlesTenThousandRows(t *testing.T) {
@@ -84,5 +85,30 @@ func TestTaskTableModelSearch(t *testing.T) {
 	task, ok := model.TaskAt(0)
 	if !ok || task.ID != "one" {
 		t.Fatalf("expected media task, got %#v ok=%v", task, ok)
+	}
+}
+
+func TestTaskTableModelToggleSort(t *testing.T) {
+	model := newTaskTableModel()
+	model.SetTasks([]core.TaskSnapshot{
+		{ID: "b", Title: "bravo", CreatedAt: time.Unix(2, 0)},
+		{ID: "a", Title: "alpha", CreatedAt: time.Unix(1, 0)},
+	})
+
+	if err := model.ToggleSort(0); err != nil {
+		t.Fatal(err)
+	}
+	if task, _ := model.TaskAt(0); task.ID != "a" {
+		t.Fatalf("ascending first task = %q, want a", task.ID)
+	}
+	if column, order := model.SortState(); column != 0 || order != walk.SortAscending {
+		t.Fatalf("sort state = (%d, %v), want (0, ascending)", column, order)
+	}
+
+	if err := model.ToggleSort(0); err != nil {
+		t.Fatal(err)
+	}
+	if task, _ := model.TaskAt(0); task.ID != "b" {
+		t.Fatalf("descending first task = %q, want b", task.ID)
 	}
 }

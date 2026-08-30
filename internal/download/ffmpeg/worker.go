@@ -16,6 +16,7 @@ import (
 
 	"ghost-downloader-go-win32/internal/core"
 	m3u8download "ghost-downloader-go-win32/internal/download/m3u8"
+	appwin32 "ghost-downloader-go-win32/internal/win32"
 )
 
 type Worker struct{}
@@ -121,6 +122,7 @@ func runFFmpeg(ctx context.Context, ffmpeg, video, audio, output string, report 
 		output,
 	}
 	cmd := exec.CommandContext(ctx, ffmpeg, args...)
+	appwin32.HideCommandWindow(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -188,7 +190,9 @@ func killProcessTree(cmd *exec.Cmd) {
 		return
 	}
 	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill.exe", "/T", "/F", "/PID", fmt.Sprint(cmd.Process.Pid)).Run()
+		kill := exec.Command("taskkill.exe", "/T", "/F", "/PID", fmt.Sprint(cmd.Process.Pid))
+		appwin32.HideCommandWindow(kill)
+		_ = kill.Run()
 		return
 	}
 	_ = cmd.Process.Kill()

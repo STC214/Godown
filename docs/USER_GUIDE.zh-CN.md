@@ -112,7 +112,8 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈�
 
 ## 9. 主题、更新与日志
 
-- 在 **Settings → Appearance → Theme** 选择 System、Light 或 Dark；保存后主窗口立即刷新主题。
+- 在 **Settings → Appearance → Theme** 选择 System、Light 或 Dark；新配置默认使用 Dark，保存后主窗口立即刷新主题。暗色模式会同步调整窗口、标签、输入框、任务列表和详情区域；Light 模式使用白色输入背景和深色文字。
+- 下载目录、代理、请求头、Cookies、并发/重试、速度限制及运行时选项统一在 **Settings** 窗口中设置；主窗口专注于添加与管理下载任务。
 - 选择主窗口顶部的 **Check Updates** 查询最新发布版本。如果 Release 同时包含 `windows-x64-portable.zip` 和对应 `.sha256`，应用会下载并验证文件，退出后自动覆盖便携目录并重新启动；缺少匹配资产时打开发布页面。
 - 选择 **Open Logs** 可定位 `%AppData%\GhostDownloaderGo\GhostDownloader.log`。
 - 未处理异常会额外生成 `%AppData%\GhostDownloaderGo\crash-YYYYMMDD-HHMMSS.log`，其中包含 panic 和调用栈。

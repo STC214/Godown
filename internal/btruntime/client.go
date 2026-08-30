@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"ghost-downloader-go-win32/internal/core"
+	appwin32 "ghost-downloader-go-win32/internal/win32"
 )
 
 const stateFiles = "files"
@@ -117,6 +118,7 @@ func Resolve(ctx context.Context, source string, options Options) (core.Task, er
 func (w Worker) Run(ctx context.Context, task core.Task, report func(core.ProgressUpdate)) error {
 	path := runtimePath(w.RuntimePath)
 	command := exec.Command(path, "run")
+	appwin32.HideCommandWindow(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("open BitTorrent runtime input: %w", err)
@@ -297,6 +299,7 @@ func runSingle(ctx context.Context, path, action string, request, response any) 
 		return err
 	}
 	command := exec.CommandContext(ctx, path, action)
+	appwin32.HideCommandWindow(command)
 	command.Stdin = bytes.NewReader(input)
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout

@@ -13,7 +13,7 @@ $target = if ([IO.Path]::IsPathRooted($OutputDir)) {
 
 Push-Location $root
 try {
-    $versionFlag = "-X ghost-downloader-go-win32/internal/buildinfo.Version=$Version"
+    $versionFlag = "-H=windowsgui -X ghost-downloader-go-win32/internal/buildinfo.Version=$Version"
     # Intentionally keep Go symbol and DWARF information in both executables.
     go build -trimpath -ldflags $versionFlag -o (Join-Path $target "gd3win.exe") ./cmd/gd3win
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
