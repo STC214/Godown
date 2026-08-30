@@ -2,7 +2,7 @@
 
 ## 1. 技术栈
 
-- Go 1.26.1
+- Go 1.26.6 或更新的 1.26.x 版本
 - Win32 GUI：`github.com/lxn/walk`
 - 任务/配置存储：SQLite
 - BitTorrent：`github.com/anacrolix/torrent`
@@ -29,7 +29,7 @@ internal/download/ffmpeg/   媒体合并
 internal/download/bt/       torrent 解析、文件选择模型、Worker 与恢复存储
 internal/browserbridge/     本地浏览器 HTTP/WebSocket 桥接
 internal/ui/                Walk 主窗口、设置和 BT 文件选择
-internal/win32/             DPI 与单实例支持
+internal/win32/             DPI、主题、单实例与隐藏子进程窗口支持
 internal/update/            GitHub Release 更新检查与版本比较
 internal/pluginhost/        JSON-RPC stdio 插件发现、匹配与解析
 docs/implementation-notes/ 各阶段实现记录
@@ -108,9 +108,17 @@ gofmt -w cmd internal
 go mod tidy
 go test -count=1 ./...
 go test -race -count=1 ./...
+go test -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
 go vet ./...
+go build -trimpath ./...
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 .\scripts\build-release.ps1
 ```
+
+Stage 15 的自动化基线为：总语句覆盖率 54.1%；`cmd/gd3win` 51.6%、`cmd/gd3-bt-runtime` 42.6%、`internal/app` 34.4%、`internal/ui` 24.7%、`internal/win32` 24.7%。覆盖率用于定位未执行分支，合并条件仍以关键行为断言、全量测试、竞态检测和构建同时通过为准。
+
+命令入口使用小范围可替换函数隔离 GUI 消息框和应用启动，以验证成功、重复启动、普通错误与 panic 退出码。BT runtime 的 `run`、`runWorker` 和 `encodeResult` 接受 `io.Reader` / `io.Writer`，测试不得替换进程级标准流或启动真实公网任务。`internal/app` 的来源路由测试使用 `httptest` 回环服务器。
 
 BT 本地集成测试使用动态生成的 bencode torrent 与 `httptest` Range WebSeed，不依赖公共 swarm：
 
@@ -130,9 +138,19 @@ Remove-Item Env:\GD3_BT_RUNTIME_TEST_PATH
 
 修改 BT 恢复逻辑后，还应确认测试目录和仓库根目录没有生成 `.torrent.db`。测试中直接创建默认 anacrolix client 时，要把 `ClientConfig.DataDir` 指向 `t.TempDir()`。
 
+### 便携包验收
+
+```powershell
+.\scripts\package-portable.ps1 -Version 0.1.9-stage15
+Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.9-stage15-windows-x64-portable.zip
+```
+
+发布目录只保留 ZIP 与同名 `.sha256`；展开目录由脚本清理。验收时还要逐项核对 ZIP 内 `release-manifest.json` 的大小和 SHA-256，并确认主程序、BT runtime、README、用户指南和便携更新脚本均在包内。
+
 ## 9. 文档与阶段记录
 
 - 蓝图描述目标设计与分阶段验收标准。
 - `implementation-notes/NNN-*.md` 记录实际实现、差异、待办和验证命令。
 - 功能行为改变时同步更新用户指南；架构契约改变时同步更新本文件。
 - 文档中的“已实现”必须有代码或测试依据；待验证项保留在阶段记录的 Pending 中。
+- 当前实现状态以 README 和最新编号的阶段记录为准；历史阶段记录保留当时事实，不回写成当前状态。

@@ -1,8 +1,12 @@
 # Ghost Downloader 3 用户指南
 
+> 适用于 `0.1.9-stage15` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
+
 ## 1. 界面概览
 
 主窗口由来源输入区、任务工具栏、任务表格、任务详情和状态栏组成。
+
+程序默认使用暗色主题。任务表格上方的 Name、Status、Progress、Size、Speed、Folder 表头可点击排序；当前列使用 `▲` 或 `▼` 标记方向。主窗口、文件、任务栏和托盘使用同一内置应用图标，启动时不会额外打开命令行窗口。
 
 | 操作 | 作用 |
 | --- | --- |
@@ -15,6 +19,8 @@
 | Remove | 从任务列表移除；是否清理文件取决于操作选项 |
 
 关闭主窗口后，应用可继续驻留托盘。应用退出时会先停止活动任务并保存恢复状态。
+
+重复启动程序时，第二个进程会提示 Ghost Downloader 已在运行并正常退出，不会创建第二套任务调度器或数据库连接。
 
 ## 2. 支持的来源
 
@@ -117,6 +123,14 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈�
 - 选择主窗口顶部的 **Check Updates** 查询最新发布版本。如果 Release 同时包含 `windows-x64-portable.zip` 和对应 `.sha256`，应用会下载并验证文件，退出后自动覆盖便携目录并重新启动；缺少匹配资产时打开发布页面。
 - 选择 **Open Logs** 可定位 `%AppData%\GhostDownloaderGo\GhostDownloader.log`。
 - 未处理异常会额外生成 `%AppData%\GhostDownloaderGo\crash-YYYYMMDD-HHMMSS.log`，其中包含 panic 和调用栈。
+
+便携发布同时提供 ZIP 和同名 `.sha256`。需要手动校验时可在 PowerShell 中执行：
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.9-stage15-windows-x64-portable.zip
+```
+
+将命令输出与 ZIP 同目录的 `.sha256` 文件比较；两者必须完全一致。外部校验文件是当前发布包哈希的权威记录。
 
 ## 10. 故障排查
 
