@@ -12,15 +12,18 @@ import (
 
 	"ghost-downloader-go-win32/internal/browserbridge"
 	btdownload "ghost-downloader-go-win32/internal/btruntime"
+	"ghost-downloader-go-win32/internal/buildinfo"
 	"ghost-downloader-go-win32/internal/config"
 	"ghost-downloader-go-win32/internal/core"
 	ffmpegdownload "ghost-downloader-go-win32/internal/download/ffmpeg"
 	httpdownload "ghost-downloader-go-win32/internal/download/http"
 	m3u8download "ghost-downloader-go-win32/internal/download/m3u8"
 	"ghost-downloader-go-win32/internal/logging"
+	"ghost-downloader-go-win32/internal/pluginhost"
 	"ghost-downloader-go-win32/internal/ratelimit"
 	"ghost-downloader-go-win32/internal/storage"
 	"ghost-downloader-go-win32/internal/ui"
+	updatecheck "ghost-downloader-go-win32/internal/update"
 	"ghost-downloader-go-win32/internal/win32"
 )
 
@@ -80,6 +83,13 @@ func Run() error {
 	registry.Register("bt", btdownload.Worker{})
 	registry.Register("m3u8", m3u8download.Worker{})
 	registry.Register("ffmpeg", ffmpegdownload.Worker{})
+	plugins, pluginErr := pluginhost.Discover(paths.PluginDir)
+	if pluginErr != nil {
+		slog.Warn("some plugins were skipped", "error", pluginErr)
+	}
+	for _, manifest := range plugins.Plugins() {
+		slog.Info("plugin discovered", "id", manifest.ID, "version", manifest.Version)
+	}
 	taskStore, err := storage.NewSQLiteTaskStore(paths.ConfigDB)
 	if err != nil {
 		return fmt.Errorf("initialize task store: %w", err)
@@ -97,7 +107,7 @@ func Run() error {
 		settingsMu.RLock()
 		settingsSnapshot := currentSettings
 		settingsMu.RUnlock()
-		return createTaskFromBrowser(ctx, request, settingsSnapshot, scheduler)
+		return createTaskFromBrowser(ctx, request, settingsSnapshot, scheduler, plugins)
 	})
 	if err := bridge.Apply(browserbridge.SettingsFromConfig(settings)); err != nil {
 		slog.Warn("start browser bridge failed", "error", err)
@@ -105,11 +115,18 @@ func Run() error {
 	defer bridge.Stop(nil)
 
 	return ui.Run(ui.Options{
+		AppVersion:    buildinfo.Version,
 		Paths:         paths,
 		Scheduler:     scheduler,
 		Limiter:       limiter,
 		Settings:      settings,
 		BrowserBridge: bridge,
+		CheckForUpdate: func(ctx context.Context) (updatecheck.Release, error) {
+			return (updatecheck.Checker{CurrentVersion: buildinfo.Version, Owner: buildinfo.GitHubOwner, Repository: buildinfo.GitHubRepo}).Check(ctx)
+		},
+		ParseSource: func(ctx context.Context, source string, settings config.Settings, headers map[string]string) (core.Task, error) {
+			return createTaskFromSource(ctx, source, settings, headers, plugins)
+		},
 		SaveSettings: func(next config.Settings) error {
 			next = next.Normalized(paths)
 			settingsMu.RLock()
@@ -131,7 +148,7 @@ func Run() error {
 	})
 }
 
-func createTaskFromBrowser(ctx context.Context, request browserbridge.CreateTaskRequest, settings config.Settings, scheduler *core.Scheduler) (core.Task, error) {
+func createTaskFromBrowser(ctx context.Context, request browserbridge.CreateTaskRequest, settings config.Settings, scheduler *core.Scheduler, plugins *pluginhost.Manager) (core.Task, error) {
 	if request.Source == "resource_merge" {
 		task, err := ffmpegdownload.NewMergeTask(request.Title, request.Path, mergeResourcesFromBrowser(request.Resources), settings)
 		if err != nil {
@@ -162,23 +179,10 @@ func createTaskFromBrowser(ctx context.Context, request browserbridge.CreateTask
 		blockNum = request.PreBlockNum
 	}
 
-	var task core.Task
-	if btdownload.IsSource(request.URL) {
-		task, err = btdownload.Resolve(ctx, request.URL, btOptionsFromSettings(settings, headers))
-		if err != nil {
-			return core.Task{}, err
-		}
-	} else if m3u8download.IsManifestSource(request.URL) {
-		result, err := m3u8download.Parse(ctx, request.URL, settings, headers)
-		if err != nil {
-			return core.Task{}, err
-		}
-		task = result.Task
-	} else {
-		task, err = httpdownload.Parse(ctx, request.URL, settings.DownloadDir, blockNum, settings.RetryCount, settings.ProxyURL, headers)
-		if err != nil {
-			return core.Task{}, err
-		}
+	settings.BlockNum = blockNum
+	task, err := createTaskFromSource(ctx, request.URL, settings, headers, plugins)
+	if err != nil {
+		return core.Task{}, err
 	}
 	if title := strings.TrimSpace(request.Title); title != "" {
 		if safeTitle := safeBrowserTitle(title); safeTitle != "" {
@@ -189,6 +193,62 @@ func createTaskFromBrowser(ctx context.Context, request browserbridge.CreateTask
 		task.Title = httpdownload.DeduplicateTitle(task.Title, task.Path, scheduler.Snapshot())
 	}
 	return task, nil
+}
+
+func createTaskFromSource(ctx context.Context, source string, settings config.Settings, headers map[string]string, plugins *pluginhost.Manager) (core.Task, error) {
+	kind := ""
+	title := ""
+	if plugins != nil {
+		parsed, matched, err := plugins.Resolve(ctx, pluginhost.ParseParams{
+			URL:         source,
+			DownloadDir: settings.DownloadDir,
+			Headers:     headers,
+			ProxyURL:    settings.ProxyURL,
+		})
+		if err != nil && !matched {
+			slog.Warn("plugin match failed; continuing with built-in parsers", "url", source, "error", err)
+		} else if err != nil {
+			return core.Task{}, err
+		} else if matched {
+			source, kind, title = parsed.URL, parsed.Kind, safeBrowserTitle(parsed.Title)
+			headers = mergeHeaders(headers, parsed.Headers)
+		}
+	}
+
+	var task core.Task
+	var err error
+	switch {
+	case kind == "bt" || (kind == "" && btdownload.IsSource(source)):
+		task, err = btdownload.Resolve(ctx, source, btOptionsFromSettings(settings, headers))
+	case kind == "m3u8" || (kind == "" && m3u8download.IsManifestSource(source)):
+		var result m3u8download.ParseResult
+		result, err = m3u8download.Parse(ctx, source, settings, headers)
+		if err == nil {
+			task = result.Task
+		}
+	default:
+		task, err = httpdownload.Parse(ctx, source, settings.DownloadDir, settings.BlockNum, settings.RetryCount, settings.ProxyURL, headers)
+	}
+	if err != nil {
+		return core.Task{}, err
+	}
+	if title != "" {
+		task.Title = title
+	}
+	return task, nil
+}
+
+func mergeHeaders(base, extra map[string]string) map[string]string {
+	result := make(map[string]string, len(base)+len(extra))
+	for key, value := range base {
+		result[key] = value
+	}
+	for key, value := range extra {
+		if strings.TrimSpace(value) != "" {
+			result[key] = value
+		}
+	}
+	return result
 }
 
 func btOptionsFromSettings(settings config.Settings, headers map[string]string) btdownload.Options {

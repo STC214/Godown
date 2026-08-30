@@ -1,11 +1,40 @@
 package ui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"ghost-downloader-go-win32/internal/core"
 )
+
+func TestTaskTableModelHandlesTenThousandRows(t *testing.T) {
+	model := newTaskTableModel()
+	tasks := make([]core.TaskSnapshot, 10000)
+	for i := range tasks {
+		tasks[i] = core.TaskSnapshot{ID: fmt.Sprintf("task-%05d", i), Title: fmt.Sprintf("Download %05d", i), Status: core.StatusCompleted, CreatedAt: time.Unix(int64(i), 0)}
+	}
+	model.SetTasks(tasks)
+	if model.RowCount() != len(tasks) {
+		t.Fatalf("row count=%d want=%d", model.RowCount(), len(tasks))
+	}
+	model.SetSearchText("09999")
+	if model.RowCount() != 1 {
+		t.Fatalf("filtered row count=%d want=1", model.RowCount())
+	}
+}
+
+func BenchmarkTaskTableModelTenThousandRows(b *testing.B) {
+	tasks := make([]core.TaskSnapshot, 10000)
+	for i := range tasks {
+		tasks[i] = core.TaskSnapshot{ID: fmt.Sprintf("task-%05d", i), Title: fmt.Sprintf("Download %05d", i), Status: core.StatusCompleted, CreatedAt: time.Unix(int64(i), 0)}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		model := newTaskTableModel()
+		model.SetTasks(tasks)
+	}
+}
 
 func TestTaskTableModelFilters(t *testing.T) {
 	model := newTaskTableModel()

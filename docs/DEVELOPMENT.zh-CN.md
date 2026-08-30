@@ -17,6 +17,7 @@
 cmd/gd3win/                 Windows GUI 程序入口、manifest 与资源
 cmd/gd3-bt-runtime/         BT 独立运行时进程入口
 scripts/build-release.ps1   保留调试信息的双产物构建脚本
+scripts/package-portable.ps1 带版本、哈希和 manifest 的便携 ZIP 发布脚本
 internal/app/               配置、存储、Worker、调度器和 UI 装配
 internal/btruntime/         GUI 侧轻量 BT JSON 流协议客户端
 internal/core/              Task 模型、状态机与 Scheduler
@@ -29,6 +30,8 @@ internal/download/bt/       torrent 解析、文件选择模型、Worker 与恢�
 internal/browserbridge/     本地浏览器 HTTP/WebSocket 桥接
 internal/ui/                Walk 主窗口、设置和 BT 文件选择
 internal/win32/             DPI 与单实例支持
+internal/update/            GitHub Release 更新检查与版本比较
+internal/pluginhost/        JSON-RPC stdio 插件发现、匹配与解析
 docs/implementation-notes/ 各阶段实现记录
 ```
 

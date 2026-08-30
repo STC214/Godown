@@ -1,0 +1,27 @@
+﻿{
+    "version":  "0.1.0-stage7",
+    "platform":  "windows-x64",
+    "createdAtUtc":  "2026-08-30T04:36:11.0074791Z",
+    "files":  [
+                  {
+                      "name":  "gd3-bt-runtime.exe",
+                      "size":  47904556,
+                      "sha256":  "e40028e984a5cd69c9ea49806ee523813dab026690b43b8aa55da0f984cd2b86"
+                  },
+                  {
+                      "name":  "gd3win.exe",
+                      "size":  23922688,
+                      "sha256":  "42d42b0040ecb7de4929c24a2707eee48ec1a8b1f042bac5b1937ea35649d8f9"
+                  },
+                  {
+                      "name":  "README.md",
+                      "size":  3578,
+                      "sha256":  "fb44172081b8620f7dd6bd1f105e8316e1cf1a37df018e60c9449c700bf202d3"
+                  },
+                  {
+                      "name":  "USER_GUIDE.zh-CN.md",
+                      "size":  6415,
+                      "sha256":  "90488cf59178d8544d667a1fe8242057505a74e0c20956ac69cf862f5c273204"
+                  }
+              ]
+}

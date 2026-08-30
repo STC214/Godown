@@ -7,6 +7,7 @@ import (
 
 	"ghost-downloader-go-win32/internal/config"
 	httpdownload "ghost-downloader-go-win32/internal/download/http"
+	appwin32 "ghost-downloader-go-win32/internal/win32"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -42,6 +43,7 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 	var m3u8InstallDirEdit, m3u8OutputFormatEdit, m3u8ThreadEdit, m3u8RetryEdit, m3u8TimeoutEdit, m3u8SubtitleFormatEdit *walk.LineEdit
 	var m3u8ConcurrentCheck, m3u8CheckSegmentsCheck, m3u8DeleteAfterDoneCheck, m3u8SelectAllCheck, m3u8MP4DecryptCheck *walk.CheckBox
 	var headersEdit, cookiesEdit *walk.TextEdit
+	var themeModeBox *walk.ComboBox
 	next := current
 
 	dialog := Dialog{
@@ -57,6 +59,14 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 				HorizontalFixed: true,
 				Layout:          VBox{MarginsZero: true},
 				Children: []Widget{
+					Label{Text: "Appearance"},
+					Composite{
+						Layout: Grid{Columns: 2},
+						Children: []Widget{
+							Label{Text: "Theme"},
+							ComboBox{AssignTo: &themeModeBox, Model: []string{"System", "Light", "Dark"}, CurrentIndex: themeModeIndex(current.ThemeMode)},
+						},
+					},
 					Label{Text: "Download"},
 					Composite{
 						Layout: Grid{Columns: 3},
@@ -299,6 +309,7 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 								return
 							}
 							next = parsed
+							next.ThemeMode = themeModeValue(themeModeBox.CurrentIndex())
 							dlg.Accept()
 						},
 					},
@@ -312,11 +323,34 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 		},
 	}
 
-	result, err := dialog.Run(owner)
-	if err != nil {
+	if err := dialog.Create(owner); err != nil {
 		return current, false, err
 	}
+	appwin32.ApplyTheme(dlg.Handle(), current.ThemeMode)
+	result := dlg.Run()
 	return next, result == walk.DlgCmdOK, nil
+}
+
+func themeModeIndex(mode string) int {
+	switch mode {
+	case "light":
+		return 1
+	case "dark":
+		return 2
+	default:
+		return 0
+	}
+}
+
+func themeModeValue(index int) string {
+	switch index {
+	case 1:
+		return "light"
+	case 2:
+		return "dark"
+	default:
+		return "system"
+	}
 }
 
 func settingsFromDialog(

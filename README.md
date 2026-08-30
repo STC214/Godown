@@ -13,6 +13,8 @@ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版�
 - BT 分享率/做种时长限制、DHT、端口映射偏好和连接数设置。
 - 任务持久化、并发调度、托盘、通知及浏览器桥接。
 - HTTP(S)/SOCKS5 代理、自定义请求头与 Cookie。
+- JSON-RPC stdio 插件发现、URL 匹配与解析，带进程超时和崩溃隔离。
+- 系统/亮色/暗色主题、更新检查、日志入口及崩溃报告。
 
 ## 快速开始
 
@@ -37,6 +39,14 @@ go mod download
 
 发布和运行时必须将二者放在同一目录。BT 引擎拆为独立进程后，主程序不会静态链接 torrent、DHT 和 WebRTC 协议栈。
 
+### 便携版发布
+
+```powershell
+.\scripts\package-portable.ps1 -Version 1.0.0
+```
+
+脚本生成 `release/GhostDownloader-<version>-windows-x64-portable.zip`、SHA-256 文件及包内 `release-manifest.json`。便携包不写注册表，解压后直接运行；更新时退出程序并覆盖两个 EXE。
+
 ### 添加下载
 
 1. 在顶部输入框粘贴 HTTP(S)、M3U8 或 Magnet 地址，然后选择 **Add URL**。
@@ -45,6 +55,12 @@ go mod download
 4. 使用 **Start All**、**Pause All** 或任务右键菜单控制任务。
 
 完整操作、配置含义与故障排查参见[中文用户指南](docs/USER_GUIDE.zh-CN.md)。
+
+### 插件
+
+插件放在 `%AppData%\GhostDownloaderGo\plugins\<plugin-id>`，每个插件目录包含一个 `manifest.json`。应用启动时发现插件，并通过 JSON-RPC 2.0 stdio 调用 `manifest`、`matches` 和 `parse`。
+
+Python 示例及协议说明参见 [`examples/plugins/rewrite-example`](examples/plugins/rewrite-example/) 和 [Stage 6 实现记录](docs/implementation-notes/007-stage-6-plugins.md)。
 
 ## 开发验证
 

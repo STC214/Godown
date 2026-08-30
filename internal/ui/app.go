@@ -15,20 +15,24 @@ import (
 	"ghost-downloader-go-win32/internal/config"
 	"ghost-downloader-go-win32/internal/core"
 	httpdownload "ghost-downloader-go-win32/internal/download/http"
-	m3u8download "ghost-downloader-go-win32/internal/download/m3u8"
 	"ghost-downloader-go-win32/internal/ratelimit"
+	updatecheck "ghost-downloader-go-win32/internal/update"
+	appwin32 "ghost-downloader-go-win32/internal/win32"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 )
 
 type Options struct {
-	Paths         config.Paths
-	Scheduler     *core.Scheduler
-	Limiter       *ratelimit.Limiter
-	Settings      config.Settings
-	SaveSettings  func(config.Settings) error
-	BrowserBridge *browserbridge.Bridge
+	AppVersion     string
+	Paths          config.Paths
+	Scheduler      *core.Scheduler
+	Limiter        *ratelimit.Limiter
+	Settings       config.Settings
+	SaveSettings   func(config.Settings) error
+	BrowserBridge  *browserbridge.Bridge
+	ParseSource    func(context.Context, string, config.Settings, map[string]string) (core.Task, error)
+	CheckForUpdate func(context.Context) (updatecheck.Release, error)
 }
 
 func Run(options Options) error {
@@ -134,6 +138,41 @@ func Run(options Options) error {
 			statusLabel.SetText("Open file failed: " + err.Error())
 		}
 	}
+	openLogFile := func() {
+		if err := exec.Command("explorer.exe", "/select,", options.Paths.LogFile).Start(); err != nil {
+			statusLabel.SetText("Open log location failed: " + err.Error())
+		}
+	}
+	checkForUpdates := func() {
+		if options.CheckForUpdate == nil {
+			statusLabel.SetText("Update checker is unavailable.")
+			return
+		}
+		statusLabel.SetText("Checking for updates...")
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			release, err := options.CheckForUpdate(ctx)
+			app.Post(func() {
+				if err != nil {
+					statusLabel.SetText("Update check failed: " + err.Error())
+					return
+				}
+				if !release.Newer {
+					statusLabel.SetText("You are running the latest version (" + options.AppVersion + ").")
+					return
+				}
+				message := fmt.Sprintf("Ghost Downloader %s is available. Open the release page?", release.Version)
+				if walk.MsgBox(mainWindow, "Update Available", message, walk.MsgBoxYesNo|walk.MsgBoxIconInformation) == walk.DlgCmdYes {
+					if openErr := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", release.URL).Start(); openErr != nil {
+						statusLabel.SetText("Open release page failed: " + openErr.Error())
+						return
+					}
+				}
+				statusLabel.SetText("Update available: " + release.Version)
+			})
+		}()
+	}
 	parseAndAddSource := func(source string, clearURL bool) {
 		source = strings.TrimSpace(source)
 		if source == "" {
@@ -153,25 +192,10 @@ func Run(options Options) error {
 			headers = httpdownload.MergeCookies(headers, settings.CookiesText)
 
 			var task core.Task
-			switch {
-			case btdownload.IsSource(source):
-				task, err = btdownload.Resolve(context.Background(), source, btOptionsFromSettings(settings, headers))
-			case m3u8download.IsManifestSource(source):
-				var result m3u8download.ParseResult
-				result, err = m3u8download.Parse(context.Background(), source, settings, headers)
-				if err == nil {
-					task = result.Task
-				}
-			default:
-				task, err = httpdownload.Parse(
-					context.Background(),
-					source,
-					settings.DownloadDir,
-					settings.BlockNum,
-					settings.RetryCount,
-					settings.ProxyURL,
-					headers,
-				)
+			if options.ParseSource != nil {
+				task, err = options.ParseSource(context.Background(), source, settings, headers)
+			} else {
+				task, err = httpdownload.Parse(context.Background(), source, settings.DownloadDir, settings.BlockNum, settings.RetryCount, settings.ProxyURL, headers)
 			}
 
 			app.Post(func() {
@@ -180,7 +204,7 @@ func Run(options Options) error {
 					return
 				}
 				if task.PackID == "bt" {
-					selectedTask, selected, selectionErr := runBTSelectionDialog(mainWindow, task)
+					selectedTask, selected, selectionErr := runBTSelectionDialog(mainWindow, task, currentSettings.ThemeMode)
 					if selectionErr != nil {
 						statusLabel.SetText("Open torrent selection failed: " + selectionErr.Error())
 						return
@@ -207,7 +231,7 @@ func Run(options Options) error {
 
 	window := MainWindow{
 		AssignTo: &mainWindow,
-		Title:    "Ghost Downloader Go",
+		Title:    "Ghost Downloader Go " + options.AppVersion,
 		MinSize:  Size{Width: 980, Height: 620},
 		Size:     Size{Width: 1120, Height: 720},
 		Layout:   VBox{MarginsZero: true, SpacingZero: true},
@@ -265,6 +289,7 @@ func Run(options Options) error {
 								return
 							}
 							currentSettings = next
+							appwin32.ApplyTheme(mainWindow.Handle(), next.ThemeMode)
 							options.Scheduler.SetMaxRunning(next.MaxConcurrent)
 							if options.Limiter != nil {
 								options.Limiter.SetRate(next.SpeedLimitKiB * 1024)
@@ -283,6 +308,8 @@ func Run(options Options) error {
 							statusLabel.SetText("Settings saved.")
 						},
 					},
+					PushButton{Text: "Check Updates", OnClicked: checkForUpdates},
+					PushButton{Text: "Open Logs", OnClicked: openLogFile},
 					PushButton{
 						Text: "Start All",
 						OnClicked: func() {
@@ -609,6 +636,7 @@ func Run(options Options) error {
 	if err := window.Create(); err != nil {
 		return fmt.Errorf("create main window: %w", err)
 	}
+	appwin32.ApplyTheme(mainWindow.Handle(), currentSettings.ThemeMode)
 
 	if icon, err := loadApplicationIcon(); err != nil {
 		slog.Warn("load application icon failed", "error", err)

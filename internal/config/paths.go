@@ -10,6 +10,7 @@ const appDirName = "GhostDownloaderGo"
 
 type Paths struct {
 	DataDir     string
+	PluginDir   string
 	RuntimeDir  string
 	TempDir     string
 	LogFile     string
@@ -32,6 +33,7 @@ func ResolvePaths() (Paths, error) {
 	dataDir := filepath.Join(roaming, appDirName)
 	paths := Paths{
 		DataDir:     dataDir,
+		PluginDir:   filepath.Join(dataDir, "plugins"),
 		RuntimeDir:  filepath.Join(dataDir, "runtimes"),
 		TempDir:     filepath.Join(dataDir, "temp"),
 		LogFile:     filepath.Join(dataDir, "GhostDownloader.log"),
@@ -40,7 +42,7 @@ func ResolvePaths() (Paths, error) {
 		DownloadDir: filepath.Join(home, "Downloads"),
 	}
 
-	for _, dir := range []string{paths.DataDir, paths.RuntimeDir, paths.TempDir, paths.DownloadDir} {
+	for _, dir := range []string{paths.DataDir, paths.PluginDir, paths.RuntimeDir, paths.TempDir, paths.DownloadDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return Paths{}, fmt.Errorf("create %s: %w", dir, err)
 		}

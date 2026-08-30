@@ -148,28 +148,48 @@ func (m *taskTableModel) sortRows() {
 	ascending := m.sortOrder == walk.SortAscending
 	sort.SliceStable(m.rows, func(i, j int) bool {
 		left, right := m.rows[i], m.rows[j]
-		less := false
+		comparison := 0
 		switch m.sortColumn {
 		case 0:
-			less = strings.ToLower(left.Title) < strings.ToLower(right.Title)
+			comparison = strings.Compare(strings.ToLower(left.Title), strings.ToLower(right.Title))
 		case 1:
-			less = left.Status < right.Status
+			comparison = strings.Compare(string(left.Status), string(right.Status))
 		case 2:
-			less = left.Progress < right.Progress
+			comparison = compareFloat(left.Progress, right.Progress)
 		case 3:
-			less = left.CreatedAt.Before(right.CreatedAt)
+			comparison = left.CreatedAt.Compare(right.CreatedAt)
 		case 4:
-			less = left.Speed < right.Speed
+			comparison = compareInt64(left.Speed, right.Speed)
 		case 5:
-			less = strings.ToLower(left.Path) < strings.ToLower(right.Path)
+			comparison = strings.Compare(strings.ToLower(left.Path), strings.ToLower(right.Path))
 		default:
-			less = left.CreatedAt.Before(right.CreatedAt)
+			comparison = left.CreatedAt.Compare(right.CreatedAt)
 		}
 		if ascending {
-			return less
+			return comparison < 0
 		}
-		return !less
+		return comparison > 0
 	})
+}
+
+func compareInt64(left, right int64) int {
+	if left < right {
+		return -1
+	}
+	if left > right {
+		return 1
+	}
+	return 0
+}
+
+func compareFloat(left, right float64) int {
+	if left < right {
+		return -1
+	}
+	if left > right {
+		return 1
+	}
+	return 0
 }
 
 func (m *taskTableModel) matchesSearch(task core.TaskSnapshot) bool {

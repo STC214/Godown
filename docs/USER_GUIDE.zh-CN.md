@@ -110,7 +110,14 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈�
 
 不要在任务运行时手动修改 `.gd3_bt`、`.gd3_padding` 或 `.gd3_unselected` 内容。
 
-## 9. 故障排查
+## 9. 主题、更新与日志
+
+- 在 **Settings → Appearance → Theme** 选择 System、Light 或 Dark；保存后主窗口立即刷新主题。
+- 选择主窗口顶部的 **Check Updates** 查询最新发布版本。有新版本时会打开发布页面下载便携 ZIP。
+- 选择 **Open Logs** 可定位 `%AppData%\GhostDownloaderGo\GhostDownloader.log`。
+- 未处理异常会额外生成 `%AppData%\GhostDownloaderGo\crash-YYYYMMDD-HHMMSS.log`，其中包含 panic 和调用栈。
+
+## 10. 故障排查
 
 ### Magnet 一直等待元数据
 

@@ -9,6 +9,7 @@ import (
 const DefaultBrowserBridgePort = 14370
 
 type Settings struct {
+	ThemeMode     string `json:"themeMode"`
 	DownloadDir   string `json:"downloadDir"`
 	ProxyURL      string `json:"proxyUrl"`
 	HeadersText   string `json:"headersText"`
@@ -54,6 +55,7 @@ type Settings struct {
 
 func DefaultSettings(paths Paths) Settings {
 	return Settings{
+		ThemeMode:                  "system",
 		DownloadDir:                paths.DownloadDir,
 		BlockNum:                   8,
 		RetryCount:                 3,
@@ -93,6 +95,9 @@ func DefaultSettings(paths Paths) Settings {
 
 func (s Settings) Normalized(paths Paths) Settings {
 	defaults := DefaultSettings(paths)
+	if s.ThemeMode != "system" && s.ThemeMode != "light" && s.ThemeMode != "dark" {
+		s.ThemeMode = defaults.ThemeMode
+	}
 	if s.DownloadDir == "" {
 		s.DownloadDir = paths.DownloadDir
 	}

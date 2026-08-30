@@ -1,0 +1,9 @@
+{
+  "id": "rewrite-example",
+  "name": "Example URL Rewriter",
+  "version": "1.0.0",
+  "protocolVersion": 1,
+  "executable": "python",
+  "args": ["plugin.py"],
+  "timeoutMs": 5000
+}
