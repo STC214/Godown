@@ -2,7 +2,7 @@
 
 Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
 
-> 当前实现进度为 Stage 18：在 Stage 17 四页自适应设置窗口基础上，补齐分页页面、标签文字和原生页签头的深浅主题绘制，消除暗色模式下的白色设置区域。详见 [Stage 18 实现记录](docs/implementation-notes/013-stage-18-tab-theme.md)。
+> 当前实现进度为 Stage 19：在 Stage 18 界面修复完成后，清理历史构建、测试夹具、运行时临时文件和旧发布包，并同步全部当前文档。程序验证版本仍为 `0.1.12-stage18`，功能代码未变。详见 [Stage 19 维护记录](docs/implementation-notes/014-stage-19-workspace-cleanup.md)。
 
 ## 已实现功能
 
@@ -48,6 +48,13 @@ go mod download
 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
 
 当前验证版本为 `0.1.12-stage18`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+
+### 工作区清洁约定
+
+- `dist/`、`.codex-artifacts/` 和 `reference/` 均为可重建或本地对照内容，不纳入版本控制。
+- 仓库根目录不保留运行时 `.torrent.db`、图标转换前的原始 JPG 或测试生成物。
+- `release/` 只保留当前 Windows x64 便携 ZIP 及其同名 `.sha256`；本项目不生成安装包。
+- 各阶段实现记录属于受版本控制的项目文档，不按临时历史清理。
 
 ### 添加下载
 

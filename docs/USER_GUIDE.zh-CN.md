@@ -121,8 +121,8 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈�
 - 在 **设置 → 外观 → 主题** 选择“跟随系统、浅色或深色”；新配置默认使用深色，保存后主窗口立即刷新主题。暗色模式会同步调整窗口、标签、输入框、任务列表和详情区域；浅色模式使用白色输入背景和深色文字。
 - 下载目录、代理、请求头、Cookie、并发/重试、速度限制及运行时选项统一在 **设置** 窗口中配置。
 - 设置窗口分为 **常规、BitTorrent、流媒体、请求** 四页；切换分页即可访问全部设置，不再使用窄幅单列滚动区。分页页面和页签头会随深色、浅色主题同步切换。
-- 选择主窗口顶部的 **Check Updates** 查询最新发布版本。如果 Release 同时包含 `windows-x64-portable.zip` 和对应 `.sha256`，应用会下载并验证文件，退出后自动覆盖便携目录并重新启动；缺少匹配资产时打开发布页面。
-- 选择 **Open Logs** 可定位 `%AppData%\GhostDownloaderGo\GhostDownloader.log`。
+- 选择主窗口顶部的 **检查更新** 查询最新发布版本。如果 Release 同时包含 `windows-x64-portable.zip` 和对应 `.sha256`，应用会下载并验证文件，退出后自动覆盖便携目录并重新启动；缺少匹配资产时打开发布页面。
+- 选择 **打开日志** 可定位 `%AppData%\GhostDownloaderGo\GhostDownloader.log`。
 - 未处理异常会额外生成 `%AppData%\GhostDownloaderGo\crash-YYYYMMDD-HHMMSS.log`，其中包含 panic 和调用栈。
 
 便携发布同时提供 ZIP 和同名 `.sha256`。需要手动校验时可在 PowerShell 中执行：
@@ -132,6 +132,8 @@ Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.12-stage18-windows-x64-port
 ```
 
 将命令输出与 ZIP 同目录的 `.sha256` 文件比较；两者必须完全一致。外部校验文件是当前发布包哈希的权威记录。
+
+项目发布目录只维护当前 Windows x64 便携 ZIP 和对应校验文件，不提供安装包。旧版本如需留档，应在工作区之外单独保存。
 
 ## 10. 故障排查
 

@@ -2,11 +2,11 @@
 
 本文档是后续重构的基准。目标不是机械翻译 Python/PySide6 代码，而是在 Windows 上用 Go + Win32 做一个资源占用更低、分发更干净、体验足够现代的下载器。实现时需要持续对照 Ghost-Downloader-3 当前源码，确保关键行为一致，UI 则做功能完整和视觉近似，不追求 PySide6/qfluentwidgets 的逐像素复刻。
 
-> 实现状态（2026-09-05）：蓝图已推进至 Stage 18，当前验证版本为 `0.1.12-stage18`。HTTP、M3U8、BitTorrent/Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；设置窗口采用四页自适应布局，分页页面与原生页签头均同步深浅主题，全部主要 UI 入口采用简体中文。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/013-stage-18-tab-theme.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
+> 实现状态（2026-09-05）：蓝图已推进至 Stage 19，当前验证版本仍为 `0.1.12-stage18`。HTTP、M3U8、BitTorrent/Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；设置窗口采用四页自适应布局，分页页面与原生页签头均同步深浅主题，全部主要 UI 入口采用简体中文。Stage 19 清除了本地历史构建、测试夹具、运行时临时文件及旧发布包，并建立只保留最新便携包的维护约定。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/014-stage-19-workspace-cleanup.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
 
 ## 0. 本地对照仓库
 
-原项目源码已拉到本工作区：
+原项目源码曾作为本地只读对照放在：
 
 ```text
 reference/Ghost-Downloader-3/
@@ -18,7 +18,7 @@ reference/Ghost-Downloader-3/
 3940eedb4194967fbeb451fd9b48b7bfb05b3156
 ```
 
-浏览器扩展上游子模块也已初始化：
+浏览器扩展上游子模块的已记录对照提交为：
 
 ```text
 reference/Ghost-Downloader-3/browser_extension/upstream
@@ -27,7 +27,7 @@ reference/Ghost-Downloader-3/browser_extension/upstream
 
 后续实现时默认规则：
 
-- `reference/Ghost-Downloader-3` 是只读对照目录，不在里面做重构代码。
+- `reference/Ghost-Downloader-3` 是按需获取的只读对照目录，不在里面做重构代码，也不随工作区发布或提交。
 - Go + Win32 新项目代码写在工作区根目录的 Go module 中。
 - 每做一个模块，先读本蓝图对应章节，再读对照仓库中的源文件。
 - 如果实现行为和原仓库不同，需要在实现提交或任务记录里说明原因。

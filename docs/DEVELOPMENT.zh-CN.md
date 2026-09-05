@@ -35,6 +35,14 @@ internal/pluginhost/        JSON-RPC stdio 插件发现、匹配与解析
 docs/implementation-notes/ 各阶段实现记录
 ```
 
+以下目录和文件属于本地生成物，不应提交：
+
+- `dist/`：构建输出，可由构建或打包脚本重建；
+- `.codex-artifacts/`：自动化验证夹具和临时审计产物；
+- `reference/`：本地只读对照仓库，需要时单独获取；
+- 根目录 `.torrent.db`、覆盖率文件和图标转换前的原始 JPG：运行或测试临时文件；
+- `release/` 中非当前版本的旧 ZIP 与校验文件。
+
 ## 3. 核心任务模型
 
 每个 `core.Task` 包含来源、输出路径、状态、进度和一个当前 `Stage`。`Stage.State` 保存 Worker 特有的持久字段；Scheduler 在 Add、Load、Worker 调用和 Save 边界复制 map，避免共享可变状态。
@@ -147,6 +155,20 @@ Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.12-stage18-windows-
 
 发布目录只保留 ZIP 与同名 `.sha256`；展开目录由脚本清理。验收时还要逐项核对 ZIP 内 `release-manifest.json` 的大小和 SHA-256，并确认主程序、BT runtime、README、用户指南和便携更新脚本均在包内。
 
+### 工作区清理
+
+确认没有需要保留的测试进程后，可清理 `dist/`、`.codex-artifacts/`、`reference/`、根目录运行时数据库和原始图标源文件。清理前先用 `git worktree list` 检查并注销位于临时目录中的隔离 worktree；不得删除 `docs/implementation-notes/`，这些文件是受版本控制的实现记录。
+
+完成清理后至少验证：
+
+```powershell
+git worktree list
+git status --short --ignored
+Get-ChildItem .\release -File
+```
+
+预期只列出主 worktree，受版本控制文件状态明确，`release/` 仅含当前便携 ZIP 与同名 `.sha256`。若文档有更新，应重新执行便携打包，使 ZIP 内 README 和用户指南与仓库一致，然后再次删除可重建的 `dist/`。
+
 ## 9. 文档与阶段记录
 
 - 蓝图描述目标设计与分阶段验收标准。
@@ -154,3 +176,4 @@ Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.12-stage18-windows-
 - 功能行为改变时同步更新用户指南；架构契约改变时同步更新本文件。
 - 文档中的“已实现”必须有代码或测试依据；待验证项保留在阶段记录的 Pending 中。
 - 当前实现状态以 README 和最新编号的阶段记录为准；历史阶段记录保留当时事实，不回写成当前状态。
+- Stage 19 起，维护性清理也使用连续编号记录；它不会自动改变程序版本号。
