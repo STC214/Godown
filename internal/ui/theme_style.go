@@ -16,6 +16,7 @@ type windowThemeStyle struct {
 	lightBackground *walk.SolidColorBrush
 	darkBackground  *walk.SolidColorBrush
 	inputs          *readableInputStyle
+	tabs            []*nativeTabTheme
 }
 
 func newWindowThemeStyle(form walk.Form, mode string, inputs ...textInput) (*windowThemeStyle, error) {
@@ -40,6 +41,11 @@ func newWindowThemeStyle(form walk.Form, mode string, inputs ...textInput) (*win
 		darkBackground:  darkBackground,
 		inputs:          inputStyle,
 	}
+	for _, tab := range findTabWidgets(form) {
+		if tabStyle := installNativeTabTheme(tab); tabStyle != nil {
+			style.tabs = append(style.tabs, tabStyle)
+		}
+	}
 	style.Apply(mode)
 	return style, nil
 }
@@ -60,6 +66,9 @@ func (s *windowThemeStyle) Apply(mode string) {
 	appwin32.ApplyTheme(s.form.Handle(), mode)
 	s.inputs.Apply(mode)
 	appwin32.ApplyControlPalette(s.form.Handle(), dark)
+	for _, tab := range s.tabs {
+		tab.Apply(dark)
+	}
 	_ = s.form.Invalidate()
 }
 
@@ -74,12 +83,35 @@ func applyThemeToChildren(container walk.Container, background walk.Brush, foreg
 			typed.SetBackground(background)
 		case *walk.ComboBox:
 			typed.SetBackground(background)
+		case *walk.TabWidget:
+			typed.SetBackground(background)
+			for pageIndex := 0; pageIndex < typed.Pages().Len(); pageIndex++ {
+				page := typed.Pages().At(pageIndex)
+				page.SetBackground(background)
+				applyThemeToChildren(page, background, foreground)
+			}
 		}
 		if childContainer, ok := widget.(walk.Container); ok {
 			childContainer.SetBackground(background)
 			applyThemeToChildren(childContainer, background, foreground)
 		}
 	}
+}
+
+func findTabWidgets(container walk.Container) []*walk.TabWidget {
+	var result []*walk.TabWidget
+	children := container.Children()
+	for index := 0; index < children.Len(); index++ {
+		widget := children.At(index)
+		if tab, ok := widget.(*walk.TabWidget); ok {
+			result = append(result, tab)
+			continue
+		}
+		if childContainer, ok := widget.(walk.Container); ok {
+			result = append(result, findTabWidgets(childContainer)...)
+		}
+	}
+	return result
 }
 
 func (s *windowThemeStyle) Dispose() {
@@ -89,6 +121,10 @@ func (s *windowThemeStyle) Dispose() {
 	if s.inputs != nil {
 		s.inputs.Dispose()
 	}
+	for _, tab := range s.tabs {
+		tab.Dispose()
+	}
+	s.tabs = nil
 	if s.lightBackground != nil {
 		s.lightBackground.Dispose()
 	}

@@ -141,8 +141,8 @@ Remove-Item Env:\GD3_BT_RUNTIME_TEST_PATH
 ### 便携包验收
 
 ```powershell
-.\scripts\package-portable.ps1 -Version 0.1.11-stage17
-Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.11-stage17-windows-x64-portable.zip
+.\scripts\package-portable.ps1 -Version 0.1.12-stage18
+Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.12-stage18-windows-x64-portable.zip
 ```
 
 发布目录只保留 ZIP 与同名 `.sha256`；展开目录由脚本清理。验收时还要逐项核对 ZIP 内 `release-manifest.json` 的大小和 SHA-256，并确认主程序、BT runtime、README、用户指南和便携更新脚本均在包内。
