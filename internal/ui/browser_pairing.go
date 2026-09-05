@@ -12,7 +12,7 @@ import (
 func pairApprovalFunc(dispatcher *ApplicationDispatcher, owner walk.Form) browserbridge.PairApprovalFunc {
 	return func(ctx context.Context, request browserbridge.PairRequest) (bool, error) {
 		if dispatcher == nil || dispatcher.mainWindow == nil || owner == nil {
-			return false, fmt.Errorf("main window is unavailable")
+			return false, fmt.Errorf("主窗口不可用")
 		}
 		type result struct {
 			approved bool
@@ -21,16 +21,16 @@ func pairApprovalFunc(dispatcher *ApplicationDispatcher, owner walk.Form) browse
 		resultCh := make(chan result, 1)
 		dispatcher.Post(func() {
 			if owner == nil {
-				resultCh <- result{err: fmt.Errorf("main window is unavailable")}
+				resultCh <- result{err: fmt.Errorf("主窗口不可用")}
 				return
 			}
 			message := fmt.Sprintf(
-				"A browser extension is requesting access to Ghost Downloader.\r\n\r\nSource: %s\r\nClient: %s\r\nExtension version: %s\r\n\r\nOnly allow this if you just started pairing from the extension.",
+				"浏览器扩展正在请求访问 Ghost Downloader。\r\n\r\n来源：%s\r\n客户端：%s\r\n扩展版本：%s\r\n\r\n仅在你刚刚从扩展中发起配对时允许此请求。",
 				valueOrUnknown(request.RemoteAddr),
 				valueOrUnknown(request.ClientKind),
 				valueOrUnknown(request.ExtensionVersion),
 			)
-			response := walk.MsgBox(owner, "Browser Extension Pairing", message, walk.MsgBoxYesNo|walk.MsgBoxIconQuestion)
+			response := walk.MsgBox(owner, "浏览器扩展配对", message, walk.MsgBoxYesNo|walk.MsgBoxIconQuestion)
 			resultCh <- result{approved: response == walk.DlgCmdYes}
 		})
 
@@ -45,7 +45,7 @@ func pairApprovalFunc(dispatcher *ApplicationDispatcher, owner walk.Form) browse
 
 func valueOrUnknown(value string) string {
 	if value == "" {
-		return "unknown"
+		return "未知"
 	}
 	return value
 }

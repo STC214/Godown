@@ -2,7 +2,7 @@
 
 Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
 
-> 当前实现进度为 Stage 15：在 Stage 14 的便携发布、紧凑暗色界面和应用图标基础上，完成命令入口、应用装配、UI 与 Win32 关键分支的自动化测试债务收口。详见 [Stage 15 实现记录](docs/implementation-notes/010-stage-15-automated-tests.md)。
+> 当前实现进度为 Stage 16：修复设置窗口内容区未横向伸展导致的拥挤和截断，并完成主窗口、设置、托盘、通知及种子文件选择界面的简体中文化。详见 [Stage 16 实现记录](docs/implementation-notes/011-stage-16-settings-layout-zh-cn.md)。
 
 ## 已实现功能
 
@@ -47,14 +47,14 @@ go mod download
 
 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
 
-当前验证版本为 `0.1.9-stage15`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+当前验证版本为 `0.1.10-stage16`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
 
 ### 添加下载
 
-1. 在顶部输入框粘贴 HTTP(S)、M3U8 或 Magnet 地址，然后选择 **Add URL**。
-2. 添加本地 torrent 时选择 **Open Torrent**。
+1. 在顶部输入框粘贴 HTTP(S)、M3U8 或 Magnet 地址，然后选择 **添加地址**。
+2. 添加本地 torrent 时选择 **打开种子**。
 3. BT 任务会先打开文件选择窗口；至少选择一个文件后才能加入队列。
-4. 使用 **Start All**、**Pause All** 或任务右键菜单控制任务。
+4. 使用 **全部开始**、**全部暂停** 或任务右键菜单控制任务。
 
 完整操作、配置含义与故障排查参见[中文用户指南](docs/USER_GUIDE.zh-CN.md)。
 

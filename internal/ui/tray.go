@@ -36,7 +36,7 @@ func installTray(mainWindow *walk.MainWindow, paths config.Paths, scheduler *cor
 			slog.Warn("set tray icon failed", "error", err)
 		}
 	}
-	if err := notifyIcon.SetToolTip("Ghost Downloader Go"); err != nil {
+	if err := notifyIcon.SetToolTip("Ghost Downloader 下载器"); err != nil {
 		notifyIcon.Dispose()
 		return nil, err
 	}
@@ -49,29 +49,29 @@ func installTray(mainWindow *walk.MainWindow, paths config.Paths, scheduler *cor
 		action.Triggered().Attach(handler)
 		return notifyIcon.ContextMenu().Actions().Add(action)
 	}
-	if err := addTrayAction("Show", controller.showMainWindow); err != nil {
+	if err := addTrayAction("显示主窗口", controller.showMainWindow); err != nil {
 		notifyIcon.Dispose()
 		return nil, err
 	}
-	if err := addTrayAction("Open Downloads", func() {
+	if err := addTrayAction("打开下载目录", func() {
 		if err := exec.Command("explorer.exe", paths.DownloadDir).Start(); err != nil {
-			setStatus(statusLabel, "Open downloads failed: "+err.Error())
+			setStatus(statusLabel, "打开下载目录失败："+err.Error())
 		}
 	}); err != nil {
 		notifyIcon.Dispose()
 		return nil, err
 	}
 	if scheduler != nil {
-		if err := addTrayAction("Start All", func() {
+		if err := addTrayAction("全部开始", func() {
 			scheduler.StartAll()
-			setStatus(statusLabel, "All paused tasks queued.")
+			setStatus(statusLabel, "所有暂停任务已加入队列。")
 		}); err != nil {
 			notifyIcon.Dispose()
 			return nil, err
 		}
-		if err := addTrayAction("Pause All", func() {
+		if err := addTrayAction("全部暂停", func() {
 			scheduler.PauseAll()
-			setStatus(statusLabel, "All active tasks paused.")
+			setStatus(statusLabel, "所有活动任务已暂停。")
 		}); err != nil {
 			notifyIcon.Dispose()
 			return nil, err
@@ -81,7 +81,7 @@ func installTray(mainWindow *walk.MainWindow, paths config.Paths, scheduler *cor
 		notifyIcon.Dispose()
 		return nil, err
 	}
-	if err := addTrayAction("Exit", func() {
+	if err := addTrayAction("退出", func() {
 		controller.exiting = true
 		walk.App().Exit(0)
 	}); err != nil {
@@ -100,14 +100,14 @@ func installTray(mainWindow *walk.MainWindow, paths config.Paths, scheduler *cor
 		}
 		*canceled = true
 		mainWindow.Hide()
-		setStatus(statusLabel, "Still running in the system tray.")
+		setStatus(statusLabel, "程序仍在系统托盘中运行。")
 	})
 	mainWindow.SizeChanged().Attach(func() {
 		if controller.exiting || !win.IsIconic(mainWindow.Handle()) {
 			return
 		}
 		mainWindow.Hide()
-		setStatus(statusLabel, "Still running in the system tray.")
+		setStatus(statusLabel, "程序仍在系统托盘中运行。")
 	})
 
 	if err := notifyIcon.SetVisible(true); err != nil {

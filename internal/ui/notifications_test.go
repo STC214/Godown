@@ -31,10 +31,10 @@ func TestTaskNotificationTrackerOnlyReportsTerminalTransitions(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected two notifications, got %#v", got)
 	}
-	if got[0].Kind != taskNotificationInfo || got[0].Title != "Download completed" || got[0].Message != "run.bin" {
+	if got[0].Kind != taskNotificationInfo || got[0].Title != "下载完成" || got[0].Message != "run.bin" {
 		t.Fatalf("unexpected completed notification: %#v", got[0])
 	}
-	if got[1].Kind != taskNotificationError || got[1].Title != "Download failed" || got[1].Message != "wait.bin\r\nnetwork error" {
+	if got[1].Kind != taskNotificationError || got[1].Title != "下载失败" || got[1].Message != "wait.bin\r\nnetwork error" {
 		t.Fatalf("unexpected failed notification: %#v", got[1])
 	}
 

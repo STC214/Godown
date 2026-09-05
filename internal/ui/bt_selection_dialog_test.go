@@ -47,6 +47,9 @@ func TestBTSelectionModelSelectedSizeAndDisplay(t *testing.T) {
 	if got, want := model.Value(1, 1), "1.5 KiB"; got != want {
 		t.Fatalf("display size = %v, want %q", got, want)
 	}
+	if got, want := model.summary(), "已选择 2/3 个文件 | 2.5 KiB"; got != want {
+		t.Fatalf("summary = %q, want %q", got, want)
+	}
 }
 
 func TestBTOptionsFromSettings(t *testing.T) {

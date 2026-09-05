@@ -58,7 +58,7 @@ func (m *btSelectionModel) Checked(row int) bool {
 
 func (m *btSelectionModel) SetChecked(row int, checked bool) error {
 	if m == nil || row < 0 || row >= len(m.rows) {
-		return fmt.Errorf("BitTorrent file row %d is out of range", row)
+		return fmt.Errorf("BitTorrent 文件行 %d 超出范围", row)
 	}
 	if m.rows[row].checked == checked {
 		return nil
@@ -83,7 +83,7 @@ func (m *btSelectionModel) Invert() {
 
 func (m *btSelectionModel) SelectedIndexes() ([]int, error) {
 	if m == nil {
-		return nil, errors.New("select at least one BitTorrent file")
+		return nil, errors.New("请至少选择一个 BitTorrent 文件")
 	}
 	result := make([]int, 0, len(m.rows))
 	for _, row := range m.rows {
@@ -92,7 +92,7 @@ func (m *btSelectionModel) SelectedIndexes() ([]int, error) {
 		}
 	}
 	if len(result) == 0 {
-		return nil, errors.New("select at least one BitTorrent file")
+		return nil, errors.New("请至少选择一个 BitTorrent 文件")
 	}
 	return result, nil
 }
@@ -124,7 +124,7 @@ func (m *btSelectionModel) selectedCount() int {
 }
 
 func (m *btSelectionModel) summary() string {
-	return fmt.Sprintf("Selected %d of %d files | %s", m.selectedCount(), m.RowCount(), formatBytes(m.SelectedSize()))
+	return fmt.Sprintf("已选择 %d/%d 个文件 | %s", m.selectedCount(), m.RowCount(), formatBytes(m.SelectedSize()))
 }
 
 func (m *btSelectionModel) setChecks(next func(bool) bool) {
@@ -172,14 +172,14 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 
 	definition := Dialog{
 		AssignTo:      &dialog,
-		Title:         "Select Torrent Files - " + task.Title,
+		Title:         "选择种子文件 - " + task.Title,
 		MinSize:       Size{Width: 720, Height: 460},
 		Size:          Size{Width: 820, Height: 560},
 		Layout:        VBox{Margins: Margins{Left: 14, Top: 14, Right: 14, Bottom: 14}},
 		DefaultButton: &acceptButton,
 		CancelButton:  &cancelButton,
 		Children: []Widget{
-			Label{Text: "Choose the files to download. Checked files are included in the task."},
+			Label{Text: "请选择要下载的文件；勾选的文件将加入任务。"},
 			TableView{
 				AssignTo:            &table,
 				Model:               model,
@@ -188,16 +188,16 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 				ColumnsSizable:      true,
 				LastColumnStretched: false,
 				Columns: []TableViewColumn{
-					{Title: "Path", Width: 610},
-					{Title: "Size", Width: 130, Alignment: AlignFar},
+					{Title: "路径", Width: 610},
+					{Title: "大小", Width: 130, Alignment: AlignFar},
 				},
 			},
 			Composite{
 				Layout: HBox{MarginsZero: true},
 				Children: []Widget{
-					PushButton{Text: "Select All", OnClicked: model.SelectAll},
-					PushButton{Text: "Clear", OnClicked: model.Clear},
-					PushButton{Text: "Invert", OnClicked: model.Invert},
+					PushButton{Text: "全选", OnClicked: model.SelectAll},
+					PushButton{Text: "清空", OnClicked: model.Clear},
+					PushButton{Text: "反选", OnClicked: model.Invert},
 					HSpacer{},
 					Label{AssignTo: &summaryLabel, Text: model.summary()},
 				},
@@ -208,16 +208,16 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 					HSpacer{},
 					PushButton{
 						AssignTo: &acceptButton,
-						Text:     "Add Task",
+						Text:     "添加任务",
 						OnClicked: func() {
 							selectedIndexes, err := model.SelectedIndexes()
 							if err != nil {
-								walk.MsgBox(dialog, "Torrent Files", err.Error(), walk.MsgBoxIconWarning)
+								walk.MsgBox(dialog, "种子文件", err.Error(), walk.MsgBoxIconWarning)
 								return
 							}
 							selectedTask, err = btdownload.SetSelectedFiles(task, selectedIndexes)
 							if err != nil {
-								walk.MsgBox(dialog, "Torrent Files", err.Error(), walk.MsgBoxIconWarning)
+								walk.MsgBox(dialog, "种子文件", err.Error(), walk.MsgBoxIconWarning)
 								return
 							}
 							dialog.Accept()
@@ -225,7 +225,7 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 					},
 					PushButton{
 						AssignTo:  &cancelButton,
-						Text:      "Cancel",
+						Text:      "取消",
 						OnClicked: func() { dialog.Cancel() },
 					},
 				},

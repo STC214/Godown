@@ -249,19 +249,19 @@ func (m *taskTableModel) matchesFilter(task core.TaskSnapshot) bool {
 func displayStatus(status core.TaskStatus) string {
 	switch status {
 	case core.StatusWaiting:
-		return "Waiting"
+		return "等待中"
 	case core.StatusRunning:
-		return "Running"
+		return "下载中"
 	case core.StatusSeeding:
-		return "Seeding"
+		return "做种中"
 	case core.StatusPaused:
-		return "Paused"
+		return "已暂停"
 	case core.StatusCompleted:
-		return "Completed"
+		return "已完成"
 	case core.StatusFailed:
-		return "Failed"
+		return "失败"
 	case core.StatusCanceled:
-		return "Canceled"
+		return "已取消"
 	default:
 		return string(status)
 	}

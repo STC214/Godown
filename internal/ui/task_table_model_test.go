@@ -147,3 +147,23 @@ func TestTaskTableModelCountsLookupAndValues(t *testing.T) {
 		t.Fatalf("Value(0,99) = %#v, want empty", got)
 	}
 }
+
+func TestDisplayStatusUsesSimplifiedChinese(t *testing.T) {
+	tests := []struct {
+		status core.TaskStatus
+		want   string
+	}{
+		{core.StatusWaiting, "等待中"},
+		{core.StatusRunning, "下载中"},
+		{core.StatusSeeding, "做种中"},
+		{core.StatusPaused, "已暂停"},
+		{core.StatusCompleted, "已完成"},
+		{core.StatusFailed, "失败"},
+		{core.StatusCanceled, "已取消"},
+	}
+	for _, test := range tests {
+		if got := displayStatus(test.status); got != test.want {
+			t.Errorf("displayStatus(%q) = %q, want %q", test.status, got, test.want)
+		}
+	}
+}

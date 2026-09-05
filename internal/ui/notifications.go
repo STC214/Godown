@@ -48,7 +48,7 @@ func (t *taskNotificationTracker) Update(tasks []core.TaskSnapshot) []taskNotifi
 		case core.StatusCompleted:
 			notifications = append(notifications, taskNotification{
 				Kind:    taskNotificationInfo,
-				Title:   "Download completed",
+				Title:   "下载完成",
 				Message: task.Title,
 			})
 		case core.StatusFailed:
@@ -58,7 +58,7 @@ func (t *taskNotificationTracker) Update(tasks []core.TaskSnapshot) []taskNotifi
 			}
 			notifications = append(notifications, taskNotification{
 				Kind:    taskNotificationError,
-				Title:   "Download failed",
+				Title:   "下载失败",
 				Message: message,
 			})
 		}

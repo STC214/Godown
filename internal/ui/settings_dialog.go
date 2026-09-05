@@ -29,6 +29,14 @@ type btSettingsDialogValues struct {
 	saveMagnetTorrentFile     bool
 }
 
+const (
+	settingsDialogWidth           = 820
+	settingsDialogHeight          = 720
+	settingsDialogMinWidth        = 760
+	settingsDialogMinHeight       = 620
+	settingsDialogContentMinWidth = 700
+)
+
 func runSettingsDialog(owner walk.Form, current config.Settings) (config.Settings, bool, error) {
 	var dlg *walk.Dialog
 	var acceptButton, cancelButton *walk.PushButton
@@ -47,46 +55,48 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 
 	dialog := Dialog{
 		AssignTo:      &dlg,
-		Title:         "Settings",
-		Size:          Size{Width: 820, Height: 900},
-		MinSize:       Size{Width: 760, Height: 720},
+		Title:         "设置",
+		Size:          Size{Width: settingsDialogWidth, Height: settingsDialogHeight},
+		MinSize:       Size{Width: settingsDialogMinWidth, Height: settingsDialogMinHeight},
 		Layout:        VBox{Margins: Margins{Left: 14, Top: 14, Right: 14, Bottom: 14}},
 		DefaultButton: &acceptButton,
 		CancelButton:  &cancelButton,
 		Children: []Widget{
 			ScrollView{
 				HorizontalFixed: true,
+				MinSize:         Size{Width: settingsDialogContentMinWidth, Height: 0},
+				StretchFactor:   1,
 				Layout:          VBox{MarginsZero: true},
 				Children: []Widget{
-					Label{Text: "Appearance"},
+					Label{Text: "外观"},
 					Composite{
 						Layout: Grid{Columns: 2},
 						Children: []Widget{
-							Label{Text: "Theme"},
-							ComboBox{AssignTo: &themeModeBox, Model: []string{"System", "Light", "Dark"}, CurrentIndex: themeModeIndex(current.ThemeMode)},
+							Label{Text: "主题"},
+							ComboBox{AssignTo: &themeModeBox, Model: []string{"跟随系统", "浅色", "深色"}, CurrentIndex: themeModeIndex(current.ThemeMode)},
 						},
 					},
-					Label{Text: "Download"},
+					Label{Text: "下载"},
 					Composite{
 						Layout: Grid{Columns: 3},
 						Children: []Widget{
-							Label{Text: "Folder"},
+							Label{Text: "保存目录"},
 							LineEdit{
 								AssignTo:   &downloadDirEdit,
 								Text:       current.DownloadDir,
 								ColumnSpan: 1,
 							},
 							PushButton{
-								Text: "Browse",
+								Text: "浏览…",
 								OnClicked: func() {
 									dialog := new(walk.FileDialog)
-									dialog.Title = "Choose Download Folder"
+									dialog.Title = "选择下载目录"
 									if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
 										downloadDirEdit.SetText(dialog.FilePath)
 									}
 								},
 							},
-							Label{Text: "Proxy URL"},
+							Label{Text: "代理地址"},
 							LineEdit{
 								AssignTo:   &proxyEdit,
 								Text:       current.ProxyURL,
@@ -94,31 +104,31 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 							},
 						},
 					},
-					Label{Text: "Limits"},
+					Label{Text: "任务限制"},
 					Composite{
 						Layout: Grid{Columns: 2},
 						Children: []Widget{
-							Label{Text: "Blocks"},
+							Label{Text: "分块数"},
 							LineEdit{AssignTo: &blockEdit, Text: strconv.Itoa(current.BlockNum)},
-							Label{Text: "Max Tasks"},
+							Label{Text: "最大并发任务"},
 							LineEdit{AssignTo: &maxConcurrentEdit, Text: strconv.Itoa(current.MaxConcurrent)},
-							Label{Text: "Retries"},
+							Label{Text: "重试次数"},
 							LineEdit{AssignTo: &retryEdit, Text: strconv.Itoa(current.RetryCount)},
-							Label{Text: "Speed KiB/s"},
+							Label{Text: "限速（KiB/s）"},
 							LineEdit{AssignTo: &speedLimitEdit, Text: strconv.FormatInt(current.SpeedLimitKiB, 10)},
 						},
 					},
-					Label{Text: "Browser Extension"},
+					Label{Text: "浏览器扩展"},
 					Composite{
 						Layout: Grid{Columns: 3},
 						Children: []Widget{
-							Label{Text: "Enabled"},
+							Label{Text: "启用"},
 							CheckBox{
 								AssignTo:   &browserEnabledCheck,
 								Checked:    current.BrowserExtensionEnabled,
 								ColumnSpan: 2,
 							},
-							Label{Text: "Token"},
+							Label{Text: "配对令牌"},
 							LineEdit{
 								AssignTo:   &browserTokenEdit,
 								Text:       current.BrowserPairToken,
@@ -126,48 +136,48 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 								ColumnSpan: 1,
 							},
 							PushButton{
-								Text: "Regenerate",
+								Text: "重新生成",
 								OnClicked: func() {
 									browserTokenEdit.SetText(config.NewBrowserPairToken())
 								},
 							},
-							Label{Text: "Port"},
+							Label{Text: "端口"},
 							LineEdit{AssignTo: &browserPortEdit, Text: strconv.Itoa(current.BrowserBridgePort)},
-							Label{Text: "default 14370"},
+							Label{Text: "默认 14370"},
 						},
 					},
 					Label{Text: "BitTorrent"},
 					Composite{
 						Layout: Grid{Columns: 4},
 						Children: []Widget{
-							Label{Text: "Listen Port"},
+							Label{Text: "监听端口"},
 							LineEdit{AssignTo: &btListenPortEdit, Text: strconv.Itoa(current.BTListenPort)},
-							Label{Text: "Metadata Timeout (s)"},
+							Label{Text: "元数据超时（秒）"},
 							LineEdit{AssignTo: &btMetadataTimeoutEdit, Text: strconv.Itoa(current.BTMetadataTimeoutSec)},
-							Label{Text: "Connections"},
+							Label{Text: "连接数"},
 							LineEdit{AssignTo: &btConnectionsLimitEdit, Text: strconv.Itoa(current.BTConnectionsLimit)},
-							Label{Text: "Download KiB/s"},
+							Label{Text: "下载限速（KiB/s）"},
 							LineEdit{AssignTo: &btDownloadRateEdit, Text: strconv.FormatInt(current.BTDownloadRateLimitKiB, 10)},
-							Label{Text: "Upload KiB/s"},
+							Label{Text: "上传限速（KiB/s）"},
 							LineEdit{AssignTo: &btUploadRateEdit, Text: strconv.FormatInt(current.BTUploadRateLimitKiB, 10)},
-							Label{Text: "Seed Ratio (%)"},
+							Label{Text: "做种分享率（%）"},
 							LineEdit{AssignTo: &btSeedRatioEdit, Text: strconv.Itoa(current.BTSeedRatioLimitPercent)},
-							Label{Text: "Seed Time (min)"},
+							Label{Text: "做种时间（分钟）"},
 							LineEdit{AssignTo: &btSeedTimeEdit, Text: strconv.Itoa(current.BTSeedTimeLimitMinutes)},
 						},
 					},
 					Composite{
 						Layout: Grid{Columns: 3},
 						Children: []Widget{
-							CheckBox{AssignTo: &btSequentialCheck, Text: "Sequential", Checked: current.BTSequentialDownload},
-							CheckBox{AssignTo: &btSaveMagnetCheck, Text: "Save magnet .torrent", Checked: current.BTSaveMagnetTorrentFile},
+							CheckBox{AssignTo: &btSequentialCheck, Text: "顺序下载", Checked: current.BTSequentialDownload},
+							CheckBox{AssignTo: &btSaveMagnetCheck, Text: "保存磁力链接 .torrent 文件", Checked: current.BTSaveMagnetTorrentFile},
 							CheckBox{AssignTo: &btEnableDHTCheck, Text: "DHT", Checked: current.BTEnableDHT},
 							CheckBox{AssignTo: &btEnableLSDCheck, Text: "LSD", Checked: current.BTEnableLSD},
 							CheckBox{AssignTo: &btEnableUPnPCheck, Text: "UPnP", Checked: current.BTEnableUPnP},
 							CheckBox{AssignTo: &btEnableNATPMPCheck, Text: "NAT-PMP", Checked: current.BTEnableNATPMP},
 						},
 					},
-					Label{Text: "Extra Trackers (one per line)"},
+					Label{Text: "附加 Tracker（每行一个）"},
 					TextEdit{
 						AssignTo: &btTrackersEdit,
 						Text:     current.BTTrackersText,
@@ -185,10 +195,10 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 								ColumnSpan: 1,
 							},
 							PushButton{
-								Text: "Browse",
+								Text: "浏览…",
 								OnClicked: func() {
 									dialog := new(walk.FileDialog)
-									dialog.Title = "Choose FFmpeg Install Folder"
+									dialog.Title = "选择 FFmpeg 安装目录"
 									if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
 										ffmpegInstallDirEdit.SetText(dialog.FilePath)
 									}
@@ -201,28 +211,28 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 								ColumnSpan: 1,
 							},
 							PushButton{
-								Text: "Browse",
+								Text: "浏览…",
 								OnClicked: func() {
 									dialog := new(walk.FileDialog)
-									dialog.Title = "Choose N_m3u8DL-RE Install Folder"
+									dialog.Title = "选择 N_m3u8DL-RE 安装目录"
 									if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
 										m3u8InstallDirEdit.SetText(dialog.FilePath)
 									}
 								},
 							},
-							Label{Text: "Output"},
+							Label{Text: "输出格式"},
 							LineEdit{AssignTo: &m3u8OutputFormatEdit, Text: current.M3U8OutputFormat},
 							Label{Text: "mp4 / mkv"},
-							Label{Text: "Threads"},
+							Label{Text: "线程数"},
 							LineEdit{AssignTo: &m3u8ThreadEdit, Text: strconv.Itoa(current.M3U8ThreadCount)},
 							Label{Text: "1 - 64"},
-							Label{Text: "Retries"},
+							Label{Text: "重试次数"},
 							LineEdit{AssignTo: &m3u8RetryEdit, Text: strconv.Itoa(current.M3U8RetryCount)},
 							Label{Text: "0+"},
-							Label{Text: "Timeout"},
+							Label{Text: "请求超时"},
 							LineEdit{AssignTo: &m3u8TimeoutEdit, Text: strconv.Itoa(current.M3U8RequestTimeoutSec)},
-							Label{Text: "seconds"},
-							Label{Text: "Subtitle"},
+							Label{Text: "秒"},
+							Label{Text: "字幕格式"},
 							LineEdit{AssignTo: &m3u8SubtitleFormatEdit, Text: current.M3U8SubtitleFormat},
 							Label{Text: "SRT / VTT"},
 						},
@@ -230,21 +240,21 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 					Composite{
 						Layout: Grid{Columns: 2},
 						Children: []Widget{
-							CheckBox{AssignTo: &m3u8ConcurrentCheck, Text: "Concurrent audio/video/subtitle", Checked: current.M3U8ConcurrentDownload},
-							CheckBox{AssignTo: &m3u8CheckSegmentsCheck, Text: "Check segment count", Checked: current.M3U8CheckSegmentsCount},
-							CheckBox{AssignTo: &m3u8DeleteAfterDoneCheck, Text: "Delete temp segments after done", Checked: current.M3U8DeleteAfterDone},
-							CheckBox{AssignTo: &m3u8SelectAllCheck, Text: "Select all audio/subtitles", Checked: current.M3U8SelectAllAudioSubtitle},
-							CheckBox{AssignTo: &m3u8MP4DecryptCheck, Text: "MP4 real-time decryption", Checked: current.M3U8MP4RealTimeDecryption},
+							CheckBox{AssignTo: &m3u8ConcurrentCheck, Text: "并发下载音频、视频和字幕", Checked: current.M3U8ConcurrentDownload},
+							CheckBox{AssignTo: &m3u8CheckSegmentsCheck, Text: "检查分片数量", Checked: current.M3U8CheckSegmentsCount},
+							CheckBox{AssignTo: &m3u8DeleteAfterDoneCheck, Text: "完成后删除临时分片", Checked: current.M3U8DeleteAfterDone},
+							CheckBox{AssignTo: &m3u8SelectAllCheck, Text: "选择全部音轨和字幕", Checked: current.M3U8SelectAllAudioSubtitle},
+							CheckBox{AssignTo: &m3u8MP4DecryptCheck, Text: "MP4 实时解密", Checked: current.M3U8MP4RealTimeDecryption},
 						},
 					},
-					Label{Text: "Request Headers"},
+					Label{Text: "请求标头"},
 					TextEdit{
 						AssignTo: &headersEdit,
 						Text:     current.HeadersText,
 						VScroll:  true,
 						MinSize:  Size{Width: 0, Height: 110},
 					},
-					Label{Text: "Cookies"},
+					Label{Text: "Cookie"},
 					TextEdit{
 						AssignTo: &cookiesEdit,
 						Text:     current.CookiesText,
@@ -259,7 +269,7 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 					HSpacer{},
 					PushButton{
 						AssignTo: &acceptButton,
-						Text:     "Save",
+						Text:     "保存",
 						OnClicked: func() {
 							parsed, err := settingsFromDialog(
 								next,
@@ -304,7 +314,7 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 								m3u8MP4DecryptCheck.Checked(),
 							)
 							if err != nil {
-								walk.MsgBox(dlg, "Settings", err.Error(), walk.MsgBoxIconWarning)
+								walk.MsgBox(dlg, "设置", err.Error(), walk.MsgBoxIconWarning)
 								return
 							}
 							next = parsed
@@ -314,7 +324,7 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 					},
 					PushButton{
 						AssignTo:  &cancelButton,
-						Text:      "Cancel",
+						Text:      "取消",
 						OnClicked: func() { dlg.Cancel() },
 					},
 				},
@@ -336,7 +346,7 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 		m3u8TimeoutEdit, m3u8SubtitleFormatEdit, headersEdit, cookiesEdit,
 	)
 	if err != nil {
-		return current, false, fmt.Errorf("style settings window: %w", err)
+		return current, false, fmt.Errorf("设置窗口样式失败：%w", err)
 	}
 	defer themeStyle.Dispose()
 	result := dlg.Run()
@@ -377,23 +387,23 @@ func settingsFromDialog(
 ) (config.Settings, error) {
 	blockNum, err := strconv.Atoi(strings.TrimSpace(blockText))
 	if err != nil || blockNum <= 0 {
-		return current, fmt.Errorf("blocks must be positive")
+		return current, fmt.Errorf("分块数必须为正整数")
 	}
 	maxConcurrent, err := strconv.Atoi(strings.TrimSpace(maxText))
 	if err != nil || maxConcurrent <= 0 {
-		return current, fmt.Errorf("max tasks must be positive")
+		return current, fmt.Errorf("最大并发任务数必须为正整数")
 	}
 	retryCount, err := strconv.Atoi(strings.TrimSpace(retryText))
 	if err != nil || retryCount < 0 {
-		return current, fmt.Errorf("retries must be 0 or a positive number")
+		return current, fmt.Errorf("重试次数必须为 0 或正整数")
 	}
 	speedLimitKiB, err := strconv.ParseInt(strings.TrimSpace(speedText), 10, 64)
 	if err != nil || speedLimitKiB < 0 {
-		return current, fmt.Errorf("speed limit must be 0 or a positive KiB/s value")
+		return current, fmt.Errorf("限速必须为 0 或正数（KiB/s）")
 	}
 	browserBridgePort, err := strconv.Atoi(strings.TrimSpace(browserPortText))
 	if err != nil || browserBridgePort <= 0 || browserBridgePort > 65535 {
-		return current, fmt.Errorf("browser bridge port must be between 1 and 65535")
+		return current, fmt.Errorf("浏览器扩展端口必须在 1 到 65535 之间")
 	}
 	browserPairToken = strings.TrimSpace(browserPairToken)
 	if browserPairToken == "" {
@@ -401,55 +411,55 @@ func settingsFromDialog(
 	}
 	btListenPort, err := strconv.Atoi(strings.TrimSpace(bt.listenPortText))
 	if err != nil || btListenPort < 0 || btListenPort > 65535 {
-		return current, fmt.Errorf("bt listen port must be between 0 and 65535")
+		return current, fmt.Errorf("BT 监听端口必须在 0 到 65535 之间")
 	}
 	btMetadataTimeoutSec, err := strconv.Atoi(strings.TrimSpace(bt.metadataTimeoutText))
 	if err != nil || btMetadataTimeoutSec < 5 || btMetadataTimeoutSec > 300 {
-		return current, fmt.Errorf("bt metadata timeout must be between 5 and 300 seconds")
+		return current, fmt.Errorf("BT 元数据超时必须在 5 到 300 秒之间")
 	}
 	btConnectionsLimit, err := strconv.Atoi(strings.TrimSpace(bt.connectionsLimitText))
 	if err != nil || btConnectionsLimit < 20 || btConnectionsLimit > 2000 {
-		return current, fmt.Errorf("bt connections must be between 20 and 2000")
+		return current, fmt.Errorf("BT 连接数必须在 20 到 2000 之间")
 	}
 	btDownloadRateLimitKiB, err := strconv.ParseInt(strings.TrimSpace(bt.downloadRateLimitKiBText), 10, 64)
 	if err != nil || btDownloadRateLimitKiB < 0 {
-		return current, fmt.Errorf("bt download limit must be 0 or a positive KiB/s value")
+		return current, fmt.Errorf("BT 下载限速必须为 0 或正数（KiB/s）")
 	}
 	btUploadRateLimitKiB, err := strconv.ParseInt(strings.TrimSpace(bt.uploadRateLimitKiBText), 10, 64)
 	if err != nil || btUploadRateLimitKiB < 0 {
-		return current, fmt.Errorf("bt upload limit must be 0 or a positive KiB/s value")
+		return current, fmt.Errorf("BT 上传限速必须为 0 或正数（KiB/s）")
 	}
 	btSeedRatioLimitPercent, err := strconv.Atoi(strings.TrimSpace(bt.seedRatioLimitPercentText))
 	if err != nil || btSeedRatioLimitPercent < 0 || btSeedRatioLimitPercent > 10000 {
-		return current, fmt.Errorf("bt seed ratio must be between 0 and 10000 percent")
+		return current, fmt.Errorf("BT 做种分享率必须在 0%% 到 10000%% 之间")
 	}
 	btSeedTimeLimitMinutes, err := strconv.Atoi(strings.TrimSpace(bt.seedTimeLimitMinutesText))
 	if err != nil || btSeedTimeLimitMinutes < 0 || btSeedTimeLimitMinutes > 43200 {
-		return current, fmt.Errorf("bt seed time must be between 0 and 43200 minutes")
+		return current, fmt.Errorf("BT 做种时间必须在 0 到 43200 分钟之间")
 	}
 	m3u8OutputFormat = strings.ToLower(strings.TrimSpace(m3u8OutputFormat))
 	if m3u8OutputFormat != "mp4" && m3u8OutputFormat != "mkv" {
-		return current, fmt.Errorf("m3u8 output must be mp4 or mkv")
+		return current, fmt.Errorf("M3U8 输出格式必须为 mp4 或 mkv")
 	}
 	m3u8ThreadCount, err := strconv.Atoi(strings.TrimSpace(m3u8ThreadText))
 	if err != nil || m3u8ThreadCount <= 0 || m3u8ThreadCount > 64 {
-		return current, fmt.Errorf("m3u8 threads must be between 1 and 64")
+		return current, fmt.Errorf("M3U8 线程数必须在 1 到 64 之间")
 	}
 	m3u8RetryCount, err := strconv.Atoi(strings.TrimSpace(m3u8RetryText))
 	if err != nil || m3u8RetryCount < 0 {
-		return current, fmt.Errorf("m3u8 retries must be 0 or a positive number")
+		return current, fmt.Errorf("M3U8 重试次数必须为 0 或正整数")
 	}
 	m3u8TimeoutSec, err := strconv.Atoi(strings.TrimSpace(m3u8TimeoutText))
 	if err != nil || m3u8TimeoutSec <= 0 {
-		return current, fmt.Errorf("m3u8 timeout must be positive")
+		return current, fmt.Errorf("M3U8 请求超时必须为正整数")
 	}
 	m3u8SubtitleFormat = strings.ToUpper(strings.TrimSpace(m3u8SubtitleFormat))
 	if m3u8SubtitleFormat != "SRT" && m3u8SubtitleFormat != "VTT" {
-		return current, fmt.Errorf("m3u8 subtitle format must be SRT or VTT")
+		return current, fmt.Errorf("M3U8 字幕格式必须为 SRT 或 VTT")
 	}
 	headersText = strings.TrimSpace(headersText)
 	if _, err := httpdownload.ParseHeaders(headersText); err != nil {
-		return current, fmt.Errorf("headers invalid: %w", err)
+		return current, fmt.Errorf("请求标头格式错误：%w", err)
 	}
 	current.DownloadDir = strings.TrimSpace(downloadDir)
 	current.ProxyURL = strings.TrimSpace(proxyURL)

@@ -65,7 +65,7 @@ func Run(options Options) error {
 		refreshTaskSelection(taskTable, taskModel, &selectedTaskID, taskDetail)
 		updateTaskSummary(taskSummaryLabel, taskModel)
 	}
-	headerTitles := [...]string{"Name", "Status", "Progress", "Size", "Speed", "Folder"}
+	headerTitles := [...]string{"名称", "状态", "进度", "大小", "速度", "目录"}
 	updateTaskSortHeaders := func() {
 		column, order := taskModel.SortState()
 		for index, button := range taskHeaderButtons {
@@ -85,7 +85,7 @@ func Run(options Options) error {
 	}
 	sortTaskColumn := func(column int) {
 		if err := taskModel.ToggleSort(column); err != nil {
-			statusLabel.SetText("Sort failed: " + err.Error())
+			statusLabel.SetText("排序失败：" + err.Error())
 			return
 		}
 		updateTaskSortHeaders()
@@ -93,42 +93,42 @@ func Run(options Options) error {
 	}
 	toggleSelectedTask := func() {
 		if selectedTaskID == "" {
-			statusLabel.SetText("Select a task first.")
+			statusLabel.SetText("请先选择任务。")
 			return
 		}
 		if err := options.Scheduler.TogglePause(selectedTaskID); err != nil {
-			statusLabel.SetText("Toggle failed: " + err.Error())
+			statusLabel.SetText("切换任务状态失败：" + err.Error())
 		}
 	}
 	redownloadSelectedTask := func() {
 		taskID := selectedTaskID
 		if taskID == "" {
-			statusLabel.SetText("Select a task first.")
+			statusLabel.SetText("请先选择任务。")
 			return
 		}
-		statusLabel.SetText("Restarting task...")
+		statusLabel.SetText("正在重新下载任务…")
 		go func() {
 			err := options.Scheduler.Redownload(taskID)
 			app.Post(func() {
 				if err != nil {
-					statusLabel.SetText("Redownload failed: " + err.Error())
+					statusLabel.SetText("重新下载失败：" + err.Error())
 					return
 				}
-				statusLabel.SetText("Task restarted.")
+				statusLabel.SetText("任务已重新开始。")
 			})
 		}()
 	}
 	removeSelectedTask := func() {
 		if selectedTaskID == "" {
-			statusLabel.SetText("Select a task first.")
+			statusLabel.SetText("请先选择任务。")
 			return
 		}
 		if err := options.Scheduler.Remove(selectedTaskID); err != nil {
-			statusLabel.SetText("Remove failed: " + err.Error())
+			statusLabel.SetText("移除任务失败：" + err.Error())
 			return
 		}
 		selectedTaskID = ""
-		statusLabel.SetText("Task removed.")
+		statusLabel.SetText("任务已移除。")
 	}
 	openSelectedTaskFolder := func() {
 		target := currentSettings.DownloadDir
@@ -138,97 +138,97 @@ func Run(options Options) error {
 			}
 		}
 		if err := exec.Command("explorer.exe", target).Start(); err != nil {
-			statusLabel.SetText("Open folder failed: " + err.Error())
+			statusLabel.SetText("打开目录失败：" + err.Error())
 		}
 	}
 	openSelectedTaskFile := func() {
 		if selectedTaskID == "" {
-			statusLabel.SetText("Select a task first.")
+			statusLabel.SetText("请先选择任务。")
 			return
 		}
 		task, ok := selectedTaskByID[selectedTaskID]
 		if !ok {
-			statusLabel.SetText("Selected task is stale.")
+			statusLabel.SetText("所选任务已失效。")
 			return
 		}
 		if task.Status != core.StatusCompleted && task.Status != core.StatusSeeding {
-			statusLabel.SetText("File is not completed yet.")
+			statusLabel.SetText("文件尚未下载完成。")
 			return
 		}
 		if err := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", filepath.Join(task.Path, task.Title)).Start(); err != nil {
-			statusLabel.SetText("Open file failed: " + err.Error())
+			statusLabel.SetText("打开文件失败：" + err.Error())
 		}
 	}
 	openLogFile := func() {
 		if err := exec.Command("explorer.exe", "/select,", options.Paths.LogFile).Start(); err != nil {
-			statusLabel.SetText("Open log location failed: " + err.Error())
+			statusLabel.SetText("打开日志位置失败：" + err.Error())
 		}
 	}
 	checkForUpdates := func() {
 		if options.CheckForUpdate == nil {
-			statusLabel.SetText("Update checker is unavailable.")
+			statusLabel.SetText("更新检查功能当前不可用。")
 			return
 		}
-		statusLabel.SetText("Checking for updates...")
+		statusLabel.SetText("正在检查更新…")
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			release, err := options.CheckForUpdate(ctx)
 			app.Post(func() {
 				if err != nil {
-					statusLabel.SetText("Update check failed: " + err.Error())
+					statusLabel.SetText("检查更新失败：" + err.Error())
 					return
 				}
 				if !release.Newer {
-					statusLabel.SetText("You are running the latest version (" + options.AppVersion + ").")
+					statusLabel.SetText("当前已是最新版本（" + options.AppVersion + "）。")
 					return
 				}
 				if options.InstallUpdate != nil && release.HasPortableUpdate() {
-					message := fmt.Sprintf("Ghost Downloader %s is available. Download, verify, replace the portable files, and restart?", release.Version)
-					if walk.MsgBox(mainWindow, "Portable Update", message, walk.MsgBoxYesNo|walk.MsgBoxIconInformation) != walk.DlgCmdYes {
-						statusLabel.SetText("Update available: " + release.Version)
+					message := fmt.Sprintf("发现 Ghost Downloader %s。是否下载并校验便携包、替换程序文件后重启？", release.Version)
+					if walk.MsgBox(mainWindow, "便携版更新", message, walk.MsgBoxYesNo|walk.MsgBoxIconInformation) != walk.DlgCmdYes {
+						statusLabel.SetText("发现新版本：" + release.Version)
 						return
 					}
-					statusLabel.SetText("Downloading and verifying update " + release.Version + "...")
+					statusLabel.SetText("正在下载并校验更新 " + release.Version + "…")
 					go func(release updatecheck.Release) {
 						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 						defer cancel()
 						err := options.InstallUpdate(ctx, release)
 						app.Post(func() {
 							if err != nil {
-								statusLabel.SetText("Portable update failed: " + err.Error())
+								statusLabel.SetText("便携版更新失败：" + err.Error())
 								return
 							}
-							statusLabel.SetText("Update verified. Closing to replace files...")
+							statusLabel.SetText("更新已校验，正在关闭程序以替换文件…")
 							walk.App().Exit(0)
 						})
 					}(release)
 					return
 				}
-				message := fmt.Sprintf("Ghost Downloader %s is available. Open the release page?", release.Version)
-				if walk.MsgBox(mainWindow, "Update Available", message, walk.MsgBoxYesNo|walk.MsgBoxIconInformation) == walk.DlgCmdYes {
+				message := fmt.Sprintf("发现 Ghost Downloader %s。是否打开发布页面？", release.Version)
+				if walk.MsgBox(mainWindow, "发现新版本", message, walk.MsgBoxYesNo|walk.MsgBoxIconInformation) == walk.DlgCmdYes {
 					if openErr := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", release.URL).Start(); openErr != nil {
-						statusLabel.SetText("Open release page failed: " + openErr.Error())
+						statusLabel.SetText("打开发布页面失败：" + openErr.Error())
 						return
 					}
 				}
-				statusLabel.SetText("Update available: " + release.Version)
+				statusLabel.SetText("发现新版本：" + release.Version)
 			})
 		}()
 	}
 	parseAndAddSource := func(source string, clearURL bool) {
 		source = strings.TrimSpace(source)
 		if source == "" {
-			statusLabel.SetText("Enter a URL or choose a torrent file first.")
+			statusLabel.SetText("请先输入下载地址或选择种子文件。")
 			return
 		}
 		settings := currentSettings
-		statusLabel.SetText("Resolving download source...")
+		statusLabel.SetText("正在解析下载源…")
 		go func(source string, settings config.Settings, clearURL bool) {
 			headers, err := httpdownload.ParseHeaders(settings.HeadersText)
 			if err != nil {
 				app.Post(func() {
-					statusLabel.SetText("Headers invalid: " + err.Error())
+					statusLabel.SetText("请求标头格式错误：" + err.Error())
 				})
 				return
 			}
@@ -243,17 +243,17 @@ func Run(options Options) error {
 
 			app.Post(func() {
 				if err != nil {
-					statusLabel.SetText("Parse failed: " + err.Error())
+					statusLabel.SetText("解析失败：" + err.Error())
 					return
 				}
 				if task.PackID == "bt" {
 					selectedTask, selected, selectionErr := runBTSelectionDialog(mainWindow, task, currentSettings.ThemeMode)
 					if selectionErr != nil {
-						statusLabel.SetText("Open torrent selection failed: " + selectionErr.Error())
+						statusLabel.SetText("打开种子文件选择窗口失败：" + selectionErr.Error())
 						return
 					}
 					if !selected {
-						statusLabel.SetText("Torrent task canceled.")
+						statusLabel.SetText("已取消添加种子任务。")
 						return
 					}
 					task = selectedTask
@@ -267,7 +267,7 @@ func Run(options Options) error {
 				if clearURL && urlEdit != nil && strings.TrimSpace(urlEdit.Text()) == source {
 					urlEdit.SetText("")
 				}
-				statusLabel.SetText("Task added: " + task.Title)
+				statusLabel.SetText("已添加任务：" + task.Title)
 			})
 		}(source, settings, clearURL)
 	}
@@ -292,7 +292,7 @@ func Run(options Options) error {
 								Text:          "",
 							},
 							PushButton{
-								Text: "Add URL",
+								Text: "添加地址",
 								OnClicked: func() {
 									parseAndAddSource(urlEdit.Text(), true)
 								},
@@ -303,14 +303,14 @@ func Run(options Options) error {
 						Layout: HBox{MarginsZero: true},
 						Children: []Widget{
 							PushButton{
-								Text: "Open Torrent",
+								Text: "打开种子",
 								OnClicked: func() {
 									dialog := new(walk.FileDialog)
-									dialog.Title = "Open Torrent File"
-									dialog.Filter = "Torrent files (*.torrent)|*.torrent|All files (*.*)|*.*"
+									dialog.Title = "打开种子文件"
+									dialog.Filter = "种子文件 (*.torrent)|*.torrent|所有文件 (*.*)|*.*"
 									ok, err := dialog.ShowOpen(mainWindow)
 									if err != nil {
-										statusLabel.SetText("Open torrent failed: " + err.Error())
+										statusLabel.SetText("打开种子文件失败：" + err.Error())
 										return
 									}
 									if ok {
@@ -319,11 +319,11 @@ func Run(options Options) error {
 								},
 							},
 							PushButton{
-								Text: "Settings",
+								Text: "设置",
 								OnClicked: func() {
 									next, ok, err := runSettingsDialog(mainWindow, currentSettings)
 									if err != nil {
-										statusLabel.SetText("Open settings failed: " + err.Error())
+										statusLabel.SetText("打开设置失败：" + err.Error())
 										return
 									}
 									if !ok {
@@ -331,7 +331,7 @@ func Run(options Options) error {
 									}
 									next = next.Normalized(options.Paths)
 									if err := saveSettings(options, next); err != nil {
-										statusLabel.SetText("Save settings failed: " + err.Error())
+										statusLabel.SetText("保存设置失败：" + err.Error())
 										return
 									}
 									currentSettings = next
@@ -341,23 +341,23 @@ func Run(options Options) error {
 									if options.Limiter != nil {
 										options.Limiter.SetRate(next.SpeedLimitKiB * 1024)
 									}
-									statusLabel.SetText("Settings saved.")
+									statusLabel.SetText("设置已保存。")
 								},
 							},
-							PushButton{Text: "Check Updates", OnClicked: checkForUpdates},
-							PushButton{Text: "Open Logs", OnClicked: openLogFile},
+							PushButton{Text: "检查更新", OnClicked: checkForUpdates},
+							PushButton{Text: "打开日志", OnClicked: openLogFile},
 							PushButton{
-								Text: "Start All",
+								Text: "全部开始",
 								OnClicked: func() {
 									options.Scheduler.StartAll()
-									statusLabel.SetText("All paused tasks queued.")
+									statusLabel.SetText("所有暂停任务已加入队列。")
 								},
 							},
 							PushButton{
-								Text: "Pause All",
+								Text: "全部暂停",
 								OnClicked: func() {
 									options.Scheduler.PauseAll()
-									statusLabel.SetText("All active tasks paused.")
+									statusLabel.SetText("所有活动任务已暂停。")
 								},
 							},
 							HSpacer{},
@@ -367,23 +367,23 @@ func Run(options Options) error {
 						Layout: HBox{MarginsZero: true},
 						Children: []Widget{
 							PushButton{
-								Text:      "Pause/Resume",
+								Text:      "暂停/继续",
 								OnClicked: toggleSelectedTask,
 							},
 							PushButton{
-								Text:      "Redownload",
+								Text:      "重新下载",
 								OnClicked: redownloadSelectedTask,
 							},
 							PushButton{
-								Text:      "Remove",
+								Text:      "移除任务",
 								OnClicked: removeSelectedTask,
 							},
 							PushButton{
-								Text:      "Open Folder",
+								Text:      "打开目录",
 								OnClicked: openSelectedTaskFolder,
 							},
 							PushButton{
-								Text:      "Open File",
+								Text:      "打开文件",
 								OnClicked: openSelectedTaskFile,
 							},
 							HSpacer{},
@@ -398,17 +398,17 @@ func Run(options Options) error {
 						Layout: HBox{MarginsZero: true},
 						Children: []Widget{
 							Label{
-								Text:      "Tasks",
+								Text:      "下载任务",
 								Font:      Font{PointSize: 18, Bold: true},
 								Alignment: AlignHNearVCenter,
 							},
 							Label{
 								AssignTo: &taskSummaryLabel,
-								Text:     "All 0 | Active 0 | Done 0 | Failed 0",
+								Text:     "全部 0 | 活动 0 | 完成 0 | 失败 0",
 							},
 							LineEdit{
 								AssignTo:      &taskSearchEdit,
-								CueBanner:     "Search tasks",
+								CueBanner:     "搜索任务",
 								MinSize:       Size{Width: 80, Height: 0},
 								StretchFactor: 1,
 								OnTextChanged: func() {
@@ -419,7 +419,7 @@ func Run(options Options) error {
 							},
 							ComboBox{
 								AssignTo:     &taskFilterBox,
-								Model:        []string{"All", "Active", "Completed", "Failed"},
+								Model:        []string{"全部", "活动", "已完成", "失败"},
 								CurrentIndex: 0,
 								MinSize:      Size{Width: 90, Height: 0},
 								OnCurrentIndexChanged: func() {
@@ -435,12 +435,12 @@ func Run(options Options) error {
 						MinSize: Size{Width: 0, Height: 24},
 						Layout:  HBox{MarginsZero: true, SpacingZero: true},
 						Children: []Widget{
-							PushButton{AssignTo: &taskHeaderButtons[0], Text: "Name", MinSize: Size{Width: 110}, MaxSize: Size{Width: 110}, OnClicked: func() { sortTaskColumn(0) }},
-							PushButton{AssignTo: &taskHeaderButtons[1], Text: "Status", MinSize: Size{Width: 60}, MaxSize: Size{Width: 60}, OnClicked: func() { sortTaskColumn(1) }},
-							PushButton{AssignTo: &taskHeaderButtons[2], Text: "Progress", MinSize: Size{Width: 65}, MaxSize: Size{Width: 65}, OnClicked: func() { sortTaskColumn(2) }},
-							PushButton{AssignTo: &taskHeaderButtons[3], Text: "Size ▼", MinSize: Size{Width: 75}, MaxSize: Size{Width: 75}, OnClicked: func() { sortTaskColumn(3) }},
-							PushButton{AssignTo: &taskHeaderButtons[4], Text: "Speed", MinSize: Size{Width: 70}, MaxSize: Size{Width: 70}, OnClicked: func() { sortTaskColumn(4) }},
-							PushButton{AssignTo: &taskHeaderButtons[5], Text: "Folder", StretchFactor: 1, OnClicked: func() { sortTaskColumn(5) }},
+							PushButton{AssignTo: &taskHeaderButtons[0], Text: "名称", MinSize: Size{Width: 110}, MaxSize: Size{Width: 110}, OnClicked: func() { sortTaskColumn(0) }},
+							PushButton{AssignTo: &taskHeaderButtons[1], Text: "状态", MinSize: Size{Width: 60}, MaxSize: Size{Width: 60}, OnClicked: func() { sortTaskColumn(1) }},
+							PushButton{AssignTo: &taskHeaderButtons[2], Text: "进度", MinSize: Size{Width: 65}, MaxSize: Size{Width: 65}, OnClicked: func() { sortTaskColumn(2) }},
+							PushButton{AssignTo: &taskHeaderButtons[3], Text: "大小 ▼", MinSize: Size{Width: 75}, MaxSize: Size{Width: 75}, OnClicked: func() { sortTaskColumn(3) }},
+							PushButton{AssignTo: &taskHeaderButtons[4], Text: "速度", MinSize: Size{Width: 70}, MaxSize: Size{Width: 70}, OnClicked: func() { sortTaskColumn(4) }},
+							PushButton{AssignTo: &taskHeaderButtons[5], Text: "目录", StretchFactor: 1, OnClicked: func() { sortTaskColumn(5) }},
 						},
 					},
 					TableView{
@@ -455,21 +455,21 @@ func Run(options Options) error {
 						Model:                       taskModel,
 						SelectionHiddenWithoutFocus: true,
 						ContextMenuItems: []MenuItem{
-							Action{Text: "Pause/Resume", OnTriggered: toggleSelectedTask},
-							Action{Text: "Redownload", OnTriggered: redownloadSelectedTask},
+							Action{Text: "暂停/继续", OnTriggered: toggleSelectedTask},
+							Action{Text: "重新下载", OnTriggered: redownloadSelectedTask},
 							Separator{},
-							Action{Text: "Open Folder", OnTriggered: openSelectedTaskFolder},
-							Action{Text: "Open File", OnTriggered: openSelectedTaskFile},
+							Action{Text: "打开目录", OnTriggered: openSelectedTaskFolder},
+							Action{Text: "打开文件", OnTriggered: openSelectedTaskFile},
 							Separator{},
-							Action{Text: "Remove", OnTriggered: removeSelectedTask},
+							Action{Text: "移除任务", OnTriggered: removeSelectedTask},
 						},
 						Columns: []TableViewColumn{
-							{Title: "Name", Width: 110},
-							{Title: "Status", Width: 60},
-							{Title: "Progress", Width: 65, Alignment: AlignFar},
-							{Title: "Size", Width: 75, Alignment: AlignFar},
-							{Title: "Speed", Width: 70, Alignment: AlignFar},
-							{Title: "Folder", Width: 80},
+							{Title: "名称", Width: 110},
+							{Title: "状态", Width: 60},
+							{Title: "进度", Width: 65, Alignment: AlignFar},
+							{Title: "大小", Width: 75, Alignment: AlignFar},
+							{Title: "速度", Width: 70, Alignment: AlignFar},
+							{Title: "目录", Width: 80},
 						},
 						OnSelectedIndexesChanged: func() {
 							refreshTaskSelection(taskTable, taskModel, &selectedTaskID, taskDetail)
@@ -480,7 +480,7 @@ func Run(options Options) error {
 						ReadOnly: true,
 						VScroll:  true,
 						MinSize:  Size{Width: 0, Height: 86},
-						Text:     "No task selected.",
+						Text:     "未选择任务。",
 					},
 				},
 			},
@@ -489,7 +489,7 @@ func Run(options Options) error {
 				Children: []Widget{
 					Label{
 						AssignTo: &statusLabel,
-						Text:     fmt.Sprintf("Ready | Download folder: %s", currentSettings.DownloadDir),
+						Text:     fmt.Sprintf("就绪 | 下载目录：%s", currentSettings.DownloadDir),
 					},
 				},
 			},
@@ -497,18 +497,18 @@ func Run(options Options) error {
 	}
 
 	if err := window.Create(); err != nil {
-		return fmt.Errorf("create main window: %w", err)
+		return fmt.Errorf("创建主窗口失败：%w", err)
 	}
 	// TableView initializes sorter models to its first column while creating the
 	// native control. Restore the product default and synchronize the custom
 	// dark header before the window is shown.
 	if err := taskModel.Sort(3, walk.SortDescending); err != nil {
-		return fmt.Errorf("initialize task sorting: %w", err)
+		return fmt.Errorf("初始化任务排序失败：%w", err)
 	}
 	updateTaskSortHeaders()
 	themeStyle, err := newWindowThemeStyle(mainWindow, currentSettings.ThemeMode, urlEdit, taskSearchEdit, taskDetail)
 	if err != nil {
-		return fmt.Errorf("style main window: %w", err)
+		return fmt.Errorf("设置主窗口样式失败：%w", err)
 	}
 	defer themeStyle.Dispose()
 
@@ -526,7 +526,7 @@ func Run(options Options) error {
 	}
 	tray, err := installTray(mainWindow, options.Paths, options.Scheduler, statusLabel)
 	if err != nil {
-		return fmt.Errorf("install tray: %w", err)
+		return fmt.Errorf("创建托盘图标失败：%w", err)
 	}
 	defer tray.dispose()
 	var schedulerEventsDone chan struct{}
@@ -643,17 +643,17 @@ func renderTaskDetail(detail *walk.TextEdit, task core.TaskSnapshot, ok bool) {
 		return
 	}
 	if !ok {
-		detail.SetText("No task selected.")
+		detail.SetText("未选择任务。")
 		return
 	}
 	var builder strings.Builder
 	builder.WriteString(task.Title)
 	builder.WriteString("\r\n")
-	builder.WriteString("Status: ")
+	builder.WriteString("状态：")
 	builder.WriteString(displayStatus(task.Status))
-	builder.WriteString(" | Progress: ")
+	builder.WriteString(" | 进度：")
 	builder.WriteString(fmt.Sprintf("%.1f%%", task.Progress))
-	builder.WriteString(" | Size: ")
+	builder.WriteString(" | 大小：")
 	if task.FileSize > 0 {
 		builder.WriteString(formatBytes(task.Received))
 		builder.WriteString(" / ")
@@ -663,14 +663,14 @@ func renderTaskDetail(detail *walk.TextEdit, task core.TaskSnapshot, ok bool) {
 	}
 	builder.WriteString("\r\nURL: ")
 	builder.WriteString(task.URL)
-	builder.WriteString("\r\nFolder: ")
+	builder.WriteString("\r\n目录：")
 	builder.WriteString(task.Path)
 	if task.Detail != "" {
-		builder.WriteString("\r\nDetails: ")
+		builder.WriteString("\r\n详情：")
 		builder.WriteString(task.Detail)
 	}
 	if task.Error != "" {
-		builder.WriteString("\r\nError: ")
+		builder.WriteString("\r\n错误：")
 		builder.WriteString(task.Error)
 	}
 	detail.SetText(builder.String())
@@ -681,7 +681,7 @@ func updateTaskSummary(label *walk.Label, model *taskTableModel) {
 		return
 	}
 	all, active, completed, failed := model.Counts()
-	label.SetText(fmt.Sprintf("All %d | Active %d | Done %d | Failed %d", all, active, completed, failed))
+	label.SetText(fmt.Sprintf("全部 %d | 活动 %d | 完成 %d | 失败 %d", all, active, completed, failed))
 }
 
 func formatBytes(value int64) string {

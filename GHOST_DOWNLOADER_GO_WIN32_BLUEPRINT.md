@@ -2,7 +2,7 @@
 
 本文档是后续重构的基准。目标不是机械翻译 Python/PySide6 代码，而是在 Windows 上用 Go + Win32 做一个资源占用更低、分发更干净、体验足够现代的下载器。实现时需要持续对照 Ghost-Downloader-3 当前源码，确保关键行为一致，UI 则做功能完整和视觉近似，不追求 PySide6/qfluentwidgets 的逐像素复刻。
 
-> 实现状态（2026-08-30）：蓝图已推进至 Stage 15，当前验证版本为 `0.1.9-stage15`。HTTP、M3U8、BitTorrent/Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；自动化测试总语句覆盖率为 54.1%，全量测试、竞态检测、静态检查、构建和可达漏洞扫描通过。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/010-stage-15-automated-tests.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
+> 实现状态（2026-09-05）：蓝图已推进至 Stage 16，当前验证版本为 `0.1.10-stage16`。HTTP、M3U8、BitTorrent/Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；设置窗口已完成自适应宽度修复，全部主要 UI 入口采用简体中文。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/011-stage-16-settings-layout-zh-cn.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
 
 ## 0. 本地对照仓库
 
