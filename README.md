@@ -2,7 +2,7 @@
 
 Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
 
-> 当前实现进度为 Stage 16：修复设置窗口内容区未横向伸展导致的拥挤和截断，并完成主窗口、设置、托盘、通知及种子文件选择界面的简体中文化。详见 [Stage 16 实现记录](docs/implementation-notes/011-stage-16-settings-layout-zh-cn.md)。
+> 当前实现进度为 Stage 17：设置窗口由单列滚动页改为“常规、BitTorrent、流媒体、请求”四个自适应分页，消除内容区居中变窄和字段截断；全局简体中文界面保持不变。详见 [Stage 17 实现记录](docs/implementation-notes/012-stage-17-settings-tabs.md)。
 
 ## 已实现功能
 
@@ -47,7 +47,7 @@ go mod download
 
 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
 
-当前验证版本为 `0.1.10-stage16`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+当前验证版本为 `0.1.11-stage17`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
 
 ### 添加下载
 

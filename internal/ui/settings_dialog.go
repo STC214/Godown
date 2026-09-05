@@ -30,11 +30,11 @@ type btSettingsDialogValues struct {
 }
 
 const (
-	settingsDialogWidth           = 820
-	settingsDialogHeight          = 720
-	settingsDialogMinWidth        = 760
-	settingsDialogMinHeight       = 620
-	settingsDialogContentMinWidth = 700
+	settingsDialogWidth     = 820
+	settingsDialogHeight    = 720
+	settingsDialogMinWidth  = 760
+	settingsDialogMinHeight = 620
+	settingsDialogTabCount  = 4
 )
 
 func runSettingsDialog(owner walk.Form, current config.Settings) (config.Settings, bool, error) {
@@ -62,204 +62,225 @@ func runSettingsDialog(owner walk.Form, current config.Settings) (config.Setting
 		DefaultButton: &acceptButton,
 		CancelButton:  &cancelButton,
 		Children: []Widget{
-			ScrollView{
-				HorizontalFixed: true,
-				MinSize:         Size{Width: settingsDialogContentMinWidth, Height: 0},
-				StretchFactor:   1,
-				Layout:          VBox{MarginsZero: true},
-				Children: []Widget{
-					Label{Text: "外观"},
-					Composite{
-						Layout: Grid{Columns: 2},
+			TabWidget{
+				StretchFactor: 1,
+				Pages: []TabPage{
+					{
+						Title:  "常规",
+						Layout: VBox{Margins: Margins{Left: 14, Top: 14, Right: 14, Bottom: 14}},
 						Children: []Widget{
-							Label{Text: "主题"},
-							ComboBox{AssignTo: &themeModeBox, Model: []string{"跟随系统", "浅色", "深色"}, CurrentIndex: themeModeIndex(current.ThemeMode)},
-						},
-					},
-					Label{Text: "下载"},
-					Composite{
-						Layout: Grid{Columns: 3},
-						Children: []Widget{
-							Label{Text: "保存目录"},
-							LineEdit{
-								AssignTo:   &downloadDirEdit,
-								Text:       current.DownloadDir,
-								ColumnSpan: 1,
-							},
-							PushButton{
-								Text: "浏览…",
-								OnClicked: func() {
-									dialog := new(walk.FileDialog)
-									dialog.Title = "选择下载目录"
-									if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
-										downloadDirEdit.SetText(dialog.FilePath)
-									}
+							Label{Text: "外观"},
+							Composite{
+								Layout: Grid{Columns: 2},
+								Children: []Widget{
+									Label{Text: "主题"},
+									ComboBox{AssignTo: &themeModeBox, Model: []string{"跟随系统", "浅色", "深色"}, CurrentIndex: themeModeIndex(current.ThemeMode)},
 								},
 							},
-							Label{Text: "代理地址"},
-							LineEdit{
-								AssignTo:   &proxyEdit,
-								Text:       current.ProxyURL,
-								ColumnSpan: 2,
-							},
-						},
-					},
-					Label{Text: "任务限制"},
-					Composite{
-						Layout: Grid{Columns: 2},
-						Children: []Widget{
-							Label{Text: "分块数"},
-							LineEdit{AssignTo: &blockEdit, Text: strconv.Itoa(current.BlockNum)},
-							Label{Text: "最大并发任务"},
-							LineEdit{AssignTo: &maxConcurrentEdit, Text: strconv.Itoa(current.MaxConcurrent)},
-							Label{Text: "重试次数"},
-							LineEdit{AssignTo: &retryEdit, Text: strconv.Itoa(current.RetryCount)},
-							Label{Text: "限速（KiB/s）"},
-							LineEdit{AssignTo: &speedLimitEdit, Text: strconv.FormatInt(current.SpeedLimitKiB, 10)},
-						},
-					},
-					Label{Text: "浏览器扩展"},
-					Composite{
-						Layout: Grid{Columns: 3},
-						Children: []Widget{
-							Label{Text: "启用"},
-							CheckBox{
-								AssignTo:   &browserEnabledCheck,
-								Checked:    current.BrowserExtensionEnabled,
-								ColumnSpan: 2,
-							},
-							Label{Text: "配对令牌"},
-							LineEdit{
-								AssignTo:   &browserTokenEdit,
-								Text:       current.BrowserPairToken,
-								ReadOnly:   true,
-								ColumnSpan: 1,
-							},
-							PushButton{
-								Text: "重新生成",
-								OnClicked: func() {
-									browserTokenEdit.SetText(config.NewBrowserPairToken())
+							Label{Text: "下载"},
+							Composite{
+								Layout: Grid{Columns: 3},
+								Children: []Widget{
+									Label{Text: "保存目录"},
+									LineEdit{
+										AssignTo:   &downloadDirEdit,
+										Text:       current.DownloadDir,
+										ColumnSpan: 1,
+									},
+									PushButton{
+										Text: "浏览…",
+										OnClicked: func() {
+											dialog := new(walk.FileDialog)
+											dialog.Title = "选择下载目录"
+											if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
+												downloadDirEdit.SetText(dialog.FilePath)
+											}
+										},
+									},
+									Label{Text: "代理地址"},
+									LineEdit{
+										AssignTo:   &proxyEdit,
+										Text:       current.ProxyURL,
+										ColumnSpan: 2,
+									},
 								},
 							},
-							Label{Text: "端口"},
-							LineEdit{AssignTo: &browserPortEdit, Text: strconv.Itoa(current.BrowserBridgePort)},
-							Label{Text: "默认 14370"},
-						},
-					},
-					Label{Text: "BitTorrent"},
-					Composite{
-						Layout: Grid{Columns: 4},
-						Children: []Widget{
-							Label{Text: "监听端口"},
-							LineEdit{AssignTo: &btListenPortEdit, Text: strconv.Itoa(current.BTListenPort)},
-							Label{Text: "元数据超时（秒）"},
-							LineEdit{AssignTo: &btMetadataTimeoutEdit, Text: strconv.Itoa(current.BTMetadataTimeoutSec)},
-							Label{Text: "连接数"},
-							LineEdit{AssignTo: &btConnectionsLimitEdit, Text: strconv.Itoa(current.BTConnectionsLimit)},
-							Label{Text: "下载限速（KiB/s）"},
-							LineEdit{AssignTo: &btDownloadRateEdit, Text: strconv.FormatInt(current.BTDownloadRateLimitKiB, 10)},
-							Label{Text: "上传限速（KiB/s）"},
-							LineEdit{AssignTo: &btUploadRateEdit, Text: strconv.FormatInt(current.BTUploadRateLimitKiB, 10)},
-							Label{Text: "做种分享率（%）"},
-							LineEdit{AssignTo: &btSeedRatioEdit, Text: strconv.Itoa(current.BTSeedRatioLimitPercent)},
-							Label{Text: "做种时间（分钟）"},
-							LineEdit{AssignTo: &btSeedTimeEdit, Text: strconv.Itoa(current.BTSeedTimeLimitMinutes)},
-						},
-					},
-					Composite{
-						Layout: Grid{Columns: 3},
-						Children: []Widget{
-							CheckBox{AssignTo: &btSequentialCheck, Text: "顺序下载", Checked: current.BTSequentialDownload},
-							CheckBox{AssignTo: &btSaveMagnetCheck, Text: "保存磁力链接 .torrent 文件", Checked: current.BTSaveMagnetTorrentFile},
-							CheckBox{AssignTo: &btEnableDHTCheck, Text: "DHT", Checked: current.BTEnableDHT},
-							CheckBox{AssignTo: &btEnableLSDCheck, Text: "LSD", Checked: current.BTEnableLSD},
-							CheckBox{AssignTo: &btEnableUPnPCheck, Text: "UPnP", Checked: current.BTEnableUPnP},
-							CheckBox{AssignTo: &btEnableNATPMPCheck, Text: "NAT-PMP", Checked: current.BTEnableNATPMP},
-						},
-					},
-					Label{Text: "附加 Tracker（每行一个）"},
-					TextEdit{
-						AssignTo: &btTrackersEdit,
-						Text:     current.BTTrackersText,
-						VScroll:  true,
-						MinSize:  Size{Width: 0, Height: 60},
-					},
-					Label{Text: "M3U8 / DASH"},
-					Composite{
-						Layout: Grid{Columns: 3},
-						Children: []Widget{
-							Label{Text: "FFmpeg"},
-							LineEdit{
-								AssignTo:   &ffmpegInstallDirEdit,
-								Text:       current.FFmpegInstallDir,
-								ColumnSpan: 1,
-							},
-							PushButton{
-								Text: "浏览…",
-								OnClicked: func() {
-									dialog := new(walk.FileDialog)
-									dialog.Title = "选择 FFmpeg 安装目录"
-									if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
-										ffmpegInstallDirEdit.SetText(dialog.FilePath)
-									}
+							Label{Text: "任务限制"},
+							Composite{
+								Layout: Grid{Columns: 2},
+								Children: []Widget{
+									Label{Text: "分块数"},
+									LineEdit{AssignTo: &blockEdit, Text: strconv.Itoa(current.BlockNum)},
+									Label{Text: "最大并发任务"},
+									LineEdit{AssignTo: &maxConcurrentEdit, Text: strconv.Itoa(current.MaxConcurrent)},
+									Label{Text: "重试次数"},
+									LineEdit{AssignTo: &retryEdit, Text: strconv.Itoa(current.RetryCount)},
+									Label{Text: "限速（KiB/s）"},
+									LineEdit{AssignTo: &speedLimitEdit, Text: strconv.FormatInt(current.SpeedLimitKiB, 10)},
 								},
 							},
-							Label{Text: "N_m3u8DL-RE"},
-							LineEdit{
-								AssignTo:   &m3u8InstallDirEdit,
-								Text:       current.M3U8InstallDir,
-								ColumnSpan: 1,
-							},
-							PushButton{
-								Text: "浏览…",
-								OnClicked: func() {
-									dialog := new(walk.FileDialog)
-									dialog.Title = "选择 N_m3u8DL-RE 安装目录"
-									if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
-										m3u8InstallDirEdit.SetText(dialog.FilePath)
-									}
+							Label{Text: "浏览器扩展"},
+							Composite{
+								Layout: Grid{Columns: 3},
+								Children: []Widget{
+									Label{Text: "启用"},
+									CheckBox{
+										AssignTo:   &browserEnabledCheck,
+										Checked:    current.BrowserExtensionEnabled,
+										ColumnSpan: 2,
+									},
+									Label{Text: "配对令牌"},
+									LineEdit{
+										AssignTo:   &browserTokenEdit,
+										Text:       current.BrowserPairToken,
+										ReadOnly:   true,
+										ColumnSpan: 1,
+									},
+									PushButton{
+										Text: "重新生成",
+										OnClicked: func() {
+											browserTokenEdit.SetText(config.NewBrowserPairToken())
+										},
+									},
+									Label{Text: "端口"},
+									LineEdit{AssignTo: &browserPortEdit, Text: strconv.Itoa(current.BrowserBridgePort)},
+									Label{Text: "默认 14370"},
 								},
 							},
-							Label{Text: "输出格式"},
-							LineEdit{AssignTo: &m3u8OutputFormatEdit, Text: current.M3U8OutputFormat},
-							Label{Text: "mp4 / mkv"},
-							Label{Text: "线程数"},
-							LineEdit{AssignTo: &m3u8ThreadEdit, Text: strconv.Itoa(current.M3U8ThreadCount)},
-							Label{Text: "1 - 64"},
-							Label{Text: "重试次数"},
-							LineEdit{AssignTo: &m3u8RetryEdit, Text: strconv.Itoa(current.M3U8RetryCount)},
-							Label{Text: "0+"},
-							Label{Text: "请求超时"},
-							LineEdit{AssignTo: &m3u8TimeoutEdit, Text: strconv.Itoa(current.M3U8RequestTimeoutSec)},
-							Label{Text: "秒"},
-							Label{Text: "字幕格式"},
-							LineEdit{AssignTo: &m3u8SubtitleFormatEdit, Text: current.M3U8SubtitleFormat},
-							Label{Text: "SRT / VTT"},
 						},
 					},
-					Composite{
-						Layout: Grid{Columns: 2},
+					{
+						Title:  "BitTorrent",
+						Layout: VBox{Margins: Margins{Left: 14, Top: 14, Right: 14, Bottom: 14}},
 						Children: []Widget{
-							CheckBox{AssignTo: &m3u8ConcurrentCheck, Text: "并发下载音频、视频和字幕", Checked: current.M3U8ConcurrentDownload},
-							CheckBox{AssignTo: &m3u8CheckSegmentsCheck, Text: "检查分片数量", Checked: current.M3U8CheckSegmentsCount},
-							CheckBox{AssignTo: &m3u8DeleteAfterDoneCheck, Text: "完成后删除临时分片", Checked: current.M3U8DeleteAfterDone},
-							CheckBox{AssignTo: &m3u8SelectAllCheck, Text: "选择全部音轨和字幕", Checked: current.M3U8SelectAllAudioSubtitle},
-							CheckBox{AssignTo: &m3u8MP4DecryptCheck, Text: "MP4 实时解密", Checked: current.M3U8MP4RealTimeDecryption},
+							Label{Text: "BitTorrent"},
+							Composite{
+								Layout: Grid{Columns: 4},
+								Children: []Widget{
+									Label{Text: "监听端口"},
+									LineEdit{AssignTo: &btListenPortEdit, Text: strconv.Itoa(current.BTListenPort)},
+									Label{Text: "元数据超时（秒）"},
+									LineEdit{AssignTo: &btMetadataTimeoutEdit, Text: strconv.Itoa(current.BTMetadataTimeoutSec)},
+									Label{Text: "连接数"},
+									LineEdit{AssignTo: &btConnectionsLimitEdit, Text: strconv.Itoa(current.BTConnectionsLimit)},
+									Label{Text: "下载限速（KiB/s）"},
+									LineEdit{AssignTo: &btDownloadRateEdit, Text: strconv.FormatInt(current.BTDownloadRateLimitKiB, 10)},
+									Label{Text: "上传限速（KiB/s）"},
+									LineEdit{AssignTo: &btUploadRateEdit, Text: strconv.FormatInt(current.BTUploadRateLimitKiB, 10)},
+									Label{Text: "做种分享率（%）"},
+									LineEdit{AssignTo: &btSeedRatioEdit, Text: strconv.Itoa(current.BTSeedRatioLimitPercent)},
+									Label{Text: "做种时间（分钟）"},
+									LineEdit{AssignTo: &btSeedTimeEdit, Text: strconv.Itoa(current.BTSeedTimeLimitMinutes)},
+								},
+							},
+							Composite{
+								Layout: Grid{Columns: 3},
+								Children: []Widget{
+									CheckBox{AssignTo: &btSequentialCheck, Text: "顺序下载", Checked: current.BTSequentialDownload},
+									CheckBox{AssignTo: &btSaveMagnetCheck, Text: "保存磁力链接 .torrent 文件", Checked: current.BTSaveMagnetTorrentFile},
+									CheckBox{AssignTo: &btEnableDHTCheck, Text: "DHT", Checked: current.BTEnableDHT},
+									CheckBox{AssignTo: &btEnableLSDCheck, Text: "LSD", Checked: current.BTEnableLSD},
+									CheckBox{AssignTo: &btEnableUPnPCheck, Text: "UPnP", Checked: current.BTEnableUPnP},
+									CheckBox{AssignTo: &btEnableNATPMPCheck, Text: "NAT-PMP", Checked: current.BTEnableNATPMP},
+								},
+							},
+							Label{Text: "附加 Tracker（每行一个）"},
+							TextEdit{
+								AssignTo: &btTrackersEdit,
+								Text:     current.BTTrackersText,
+								VScroll:  true,
+								MinSize:  Size{Width: 0, Height: 60},
+							},
 						},
 					},
-					Label{Text: "请求标头"},
-					TextEdit{
-						AssignTo: &headersEdit,
-						Text:     current.HeadersText,
-						VScroll:  true,
-						MinSize:  Size{Width: 0, Height: 110},
+					{
+						Title:  "流媒体",
+						Layout: VBox{Margins: Margins{Left: 14, Top: 14, Right: 14, Bottom: 14}},
+						Children: []Widget{
+							Label{Text: "M3U8 / DASH"},
+							Composite{
+								Layout: Grid{Columns: 3},
+								Children: []Widget{
+									Label{Text: "FFmpeg"},
+									LineEdit{
+										AssignTo:   &ffmpegInstallDirEdit,
+										Text:       current.FFmpegInstallDir,
+										ColumnSpan: 1,
+									},
+									PushButton{
+										Text: "浏览…",
+										OnClicked: func() {
+											dialog := new(walk.FileDialog)
+											dialog.Title = "选择 FFmpeg 安装目录"
+											if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
+												ffmpegInstallDirEdit.SetText(dialog.FilePath)
+											}
+										},
+									},
+									Label{Text: "N_m3u8DL-RE"},
+									LineEdit{
+										AssignTo:   &m3u8InstallDirEdit,
+										Text:       current.M3U8InstallDir,
+										ColumnSpan: 1,
+									},
+									PushButton{
+										Text: "浏览…",
+										OnClicked: func() {
+											dialog := new(walk.FileDialog)
+											dialog.Title = "选择 N_m3u8DL-RE 安装目录"
+											if ok, err := dialog.ShowBrowseFolder(owner); err == nil && ok {
+												m3u8InstallDirEdit.SetText(dialog.FilePath)
+											}
+										},
+									},
+									Label{Text: "输出格式"},
+									LineEdit{AssignTo: &m3u8OutputFormatEdit, Text: current.M3U8OutputFormat},
+									Label{Text: "mp4 / mkv"},
+									Label{Text: "线程数"},
+									LineEdit{AssignTo: &m3u8ThreadEdit, Text: strconv.Itoa(current.M3U8ThreadCount)},
+									Label{Text: "1 - 64"},
+									Label{Text: "重试次数"},
+									LineEdit{AssignTo: &m3u8RetryEdit, Text: strconv.Itoa(current.M3U8RetryCount)},
+									Label{Text: "0+"},
+									Label{Text: "请求超时"},
+									LineEdit{AssignTo: &m3u8TimeoutEdit, Text: strconv.Itoa(current.M3U8RequestTimeoutSec)},
+									Label{Text: "秒"},
+									Label{Text: "字幕格式"},
+									LineEdit{AssignTo: &m3u8SubtitleFormatEdit, Text: current.M3U8SubtitleFormat},
+									Label{Text: "SRT / VTT"},
+								},
+							},
+							Composite{
+								Layout: Grid{Columns: 2},
+								Children: []Widget{
+									CheckBox{AssignTo: &m3u8ConcurrentCheck, Text: "并发下载音频、视频和字幕", Checked: current.M3U8ConcurrentDownload},
+									CheckBox{AssignTo: &m3u8CheckSegmentsCheck, Text: "检查分片数量", Checked: current.M3U8CheckSegmentsCount},
+									CheckBox{AssignTo: &m3u8DeleteAfterDoneCheck, Text: "完成后删除临时分片", Checked: current.M3U8DeleteAfterDone},
+									CheckBox{AssignTo: &m3u8SelectAllCheck, Text: "选择全部音轨和字幕", Checked: current.M3U8SelectAllAudioSubtitle},
+									CheckBox{AssignTo: &m3u8MP4DecryptCheck, Text: "MP4 实时解密", Checked: current.M3U8MP4RealTimeDecryption},
+								},
+							},
+						},
 					},
-					Label{Text: "Cookie"},
-					TextEdit{
-						AssignTo: &cookiesEdit,
-						Text:     current.CookiesText,
-						VScroll:  true,
-						MinSize:  Size{Width: 0, Height: 90},
+					{
+						Title:  "请求",
+						Layout: VBox{Margins: Margins{Left: 14, Top: 14, Right: 14, Bottom: 14}},
+						Children: []Widget{
+							Label{Text: "请求标头"},
+							TextEdit{
+								AssignTo: &headersEdit,
+								Text:     current.HeadersText,
+								VScroll:  true,
+								MinSize:  Size{Width: 0, Height: 110},
+							},
+							Label{Text: "Cookie"},
+							TextEdit{
+								AssignTo: &cookiesEdit,
+								Text:     current.CookiesText,
+								VScroll:  true,
+								MinSize:  Size{Width: 0, Height: 90},
+							},
+						},
 					},
 				},
 			},

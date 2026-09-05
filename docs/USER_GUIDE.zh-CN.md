@@ -1,6 +1,6 @@
 # Ghost Downloader 3 用户指南
 
-> 适用于 `0.1.10-stage16` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
+> 适用于 `0.1.11-stage17` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
 
 ## 1. 界面概览
 
@@ -119,7 +119,8 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈�
 ## 9. 主题、更新与日志
 
 - 在 **设置 → 外观 → 主题** 选择“跟随系统、浅色或深色”；新配置默认使用深色，保存后主窗口立即刷新主题。暗色模式会同步调整窗口、标签、输入框、任务列表和详情区域；浅色模式使用白色输入背景和深色文字。
-- 下载目录、代理、请求头、Cookie、并发/重试、速度限制及运行时选项统一在 **设置** 窗口中配置；设置内容区会随窗口宽度伸展，窗口较矮时可使用右侧滚动条。
+- 下载目录、代理、请求头、Cookie、并发/重试、速度限制及运行时选项统一在 **设置** 窗口中配置。
+- 设置窗口分为 **常规、BitTorrent、流媒体、请求** 四页；切换分页即可访问全部设置，不再使用窄幅单列滚动区。
 - 选择主窗口顶部的 **Check Updates** 查询最新发布版本。如果 Release 同时包含 `windows-x64-portable.zip` 和对应 `.sha256`，应用会下载并验证文件，退出后自动覆盖便携目录并重新启动；缺少匹配资产时打开发布页面。
 - 选择 **Open Logs** 可定位 `%AppData%\GhostDownloaderGo\GhostDownloader.log`。
 - 未处理异常会额外生成 `%AppData%\GhostDownloaderGo\crash-YYYYMMDD-HHMMSS.log`，其中包含 panic 和调用栈。
@@ -127,7 +128,7 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈�
 便携发布同时提供 ZIP 和同名 `.sha256`。需要手动校验时可在 PowerShell 中执行：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.10-stage16-windows-x64-portable.zip
+Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.11-stage17-windows-x64-portable.zip
 ```
 
 将命令输出与 ZIP 同目录的 `.sha256` 文件比较；两者必须完全一致。外部校验文件是当前发布包哈希的权威记录。

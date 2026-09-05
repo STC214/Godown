@@ -95,12 +95,9 @@ func TestSettingsFromDialog(t *testing.T) {
 	}
 }
 
-func TestSettingsDialogLayoutKeepsContentWideAndScreenSized(t *testing.T) {
-	if settingsDialogContentMinWidth < 700 {
-		t.Fatalf("settings content width = %d, want at least 700", settingsDialogContentMinWidth)
-	}
-	if settingsDialogMinWidth-settingsDialogContentMinWidth < 28 {
-		t.Fatalf("dialog width leaves no room for margins: dialog=%d content=%d", settingsDialogMinWidth, settingsDialogContentMinWidth)
+func TestSettingsDialogLayoutUsesScreenSizedTabs(t *testing.T) {
+	if settingsDialogTabCount != 4 {
+		t.Fatalf("settings tab count = %d, want 4", settingsDialogTabCount)
 	}
 	if settingsDialogHeight > 720 || settingsDialogMinHeight > settingsDialogHeight {
 		t.Fatalf("settings dialog heights are not screen-sized: default=%d min=%d", settingsDialogHeight, settingsDialogMinHeight)
