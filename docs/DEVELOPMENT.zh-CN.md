@@ -24,6 +24,7 @@ internal/core/              Task 模型、状态机与 Scheduler
 internal/config/            路径和 Settings
 internal/storage/           SQLite 配置与任务存储
 internal/download/http/     HTTP 探测、分块下载和恢复
+internal/download/ftp/      FTP/FTPS 探测、REST 恢复和单流下载
 internal/download/m3u8/     M3U8 解析及外部下载器 Worker
 internal/download/ffmpeg/   媒体合并
 internal/download/bt/       torrent 解析、文件选择模型、Worker 与恢复存储
@@ -97,6 +98,10 @@ BT 进入 `seeding` 后设置 `UsesSlot=false`，因此做种任务不会阻塞�
 5. 为暂停、恢复、清理、重新下载和应用退出补齐测试。
 6. 如任务存在“不占下载槽”的阶段，通过 `UsesSlot` 上报，不要绕过 Scheduler。
 
+FTP Worker 使用独立 `.part` 文件恢复下载：`ftp://` 为普通 FTP，`ftps://` 为默认 990 端口的隐式 TLS，`ftpes://` 为默认 21 端口并通过 `AUTH TLS` 升级的显式 TLS。任务 URL 会移除凭据，连接信息保存在任务阶段状态；代理仅接受 SOCKS5。完成后 `.part` 原子改名为目标文件。
+
+`Scheduler.EditTask` 是运行中修改任务配置的统一边界。它先取消当前 Worker 并等待其最终检查点，再对最新任务副本应用编辑；此前处于活动状态的任务会重新加入调度，明确暂停的任务保持暂停。BT 文件改选通过该接口更新 `files` 状态，避免 GUI 直接修改运行时状态。
+
 ## 7. BT 运行时边界
 
 Go 在 Windows 上默认把包静态链接进 EXE。为了保留完整符号/DWARF 调试能力，同时控制 GUI 文件体积，BT 引擎采用独立进程而不是剥离调试符号：
@@ -149,8 +154,8 @@ Remove-Item Env:\GD3_BT_RUNTIME_TEST_PATH
 ### 便携包验收
 
 ```powershell
-.\scripts\package-portable.ps1 -Version 0.1.12-stage18
-Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.12-stage18-windows-x64-portable.zip
+.\scripts\package-portable.ps1 -Version 0.1.13-stage20
+Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.13-stage20-windows-x64-portable.zip
 ```
 
 发布目录只保留 ZIP 与同名 `.sha256`；展开目录由脚本清理。验收时还要逐项核对 ZIP 内 `release-manifest.json` 的大小和 SHA-256，并确认主程序、BT runtime、README、用户指南和便携更新脚本均在包内。

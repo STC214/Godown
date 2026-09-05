@@ -43,8 +43,9 @@ func writeTorrent(t *testing.T, data []byte) string {
 func TestIsSource(t *testing.T) {
 	validHash := strings.Repeat("a", 40)
 	cases := map[string]bool{
-		"magnet:?xt=urn:btih:" + validHash:   true,
-		"magnet:?xt=urn:btmh:abc":            false,
+		"magnet:?xt=urn:btih:" + validHash: true,
+		"magnet:?xt=urn:btmh:abc":          false,
+		"magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e": true,
 		`C:\downloads\sample.torrent`:        true,
 		"file:///C:/sample.torrent":          true,
 		"https://example.test/a.torrent?q=1": true,
@@ -220,5 +221,28 @@ func TestResolveMagnetTimeoutAndCancellation(t *testing.T) {
 	_, err = Resolve(ctx, magnet, Options{MetadataTimeout: time.Hour, MagnetResolver: blocking})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel err=%v", err)
+	}
+}
+
+func TestResolveV2OnlyMagnetUsesResolverAndTrackers(t *testing.T) {
+	magnet := "magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e&tr=https%3A%2F%2Ftracker.test%2Fannounce"
+	metadata := makeTorrent(t, metainfo.Info{Name: "v2-fixture.bin", PieceLength: 16, Length: 32}, "", nil)
+	called := false
+	task, err := Resolve(context.Background(), magnet, Options{
+		DownloadDir: t.TempDir(),
+		MagnetResolver: func(_ context.Context, source string, _ Options) ([]byte, error) {
+			called = source == magnet
+			return metadata, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trackers, err := TrackersFromTask(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called || task.Stage.State[stateSourceType] != "magnet" || !reflect.DeepEqual(trackers, []string{"https://tracker.test/announce"}) {
+		t.Fatalf("v2 magnet was not preserved: task=%#v trackers=%q", task, trackers)
 	}
 }

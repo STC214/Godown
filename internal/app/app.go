@@ -18,6 +18,7 @@ import (
 	"ghost-downloader-go-win32/internal/config"
 	"ghost-downloader-go-win32/internal/core"
 	ffmpegdownload "ghost-downloader-go-win32/internal/download/ffmpeg"
+	ftpdownload "ghost-downloader-go-win32/internal/download/ftp"
 	httpdownload "ghost-downloader-go-win32/internal/download/http"
 	m3u8download "ghost-downloader-go-win32/internal/download/m3u8"
 	"ghost-downloader-go-win32/internal/logging"
@@ -82,6 +83,7 @@ func Run() error {
 	currentSettings := settings
 	registry := core.NewRegistry()
 	registry.Register("http", httpdownload.Worker{Limiter: limiter})
+	registry.Register("ftp", ftpdownload.Worker{Limiter: limiter})
 	registry.Register("bt", btdownload.Worker{})
 	registry.Register("m3u8", m3u8download.Worker{})
 	registry.Register("ffmpeg", ffmpegdownload.Worker{})
@@ -233,6 +235,8 @@ func createTaskFromSource(ctx context.Context, source string, settings config.Se
 	switch {
 	case kind == "bt" || (kind == "" && btdownload.IsSource(source)):
 		task, err = btdownload.Resolve(ctx, source, btOptionsFromSettings(settings, headers))
+	case kind == "ftp" || (kind == "" && ftpdownload.IsSource(source)):
+		task, err = ftpdownload.Parse(ctx, source, settings.DownloadDir, settings.ProxyURL, settings.RetryCount)
 	case kind == "m3u8" || (kind == "" && m3u8download.IsManifestSource(source)):
 		var result m3u8download.ParseResult
 		result, err = m3u8download.Parse(ctx, source, settings, headers)

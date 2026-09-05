@@ -13,6 +13,7 @@ func TestIsSourceAndParseTrackers(t *testing.T) {
 		"file:///C:/downloads/fixture.torrent",
 		"https://example.test/fixture.torrent",
 		"magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+		"magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e",
 	} {
 		if !IsSource(source) {
 			t.Fatalf("expected supported source %q", source)
@@ -42,7 +43,7 @@ func TestSetSelectedFilesClonesTaskState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if files[0].Selected || !files[1].Selected || updated.FileSize != 20 || updated.Stage.FileSize != 20 {
+	if files[0].Selected || !files[1].Selected || updated.FileSize != 20 || updated.Stage.FileSize != 20 || updated.Received != 0 {
 		t.Fatalf("updated task=%#v files=%#v", updated, files)
 	}
 	if task.Stage.State[stateFiles] == updated.Stage.State[stateFiles] || task.Stage.State["immutable"] != "yes" {

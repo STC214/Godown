@@ -1,6 +1,6 @@
 # Ghost Downloader 3 用户指南
 
-> 适用于 `0.1.12-stage18` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
+> 适用于 `0.1.13-stage20` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
 
 ## 1. 界面概览
 
@@ -14,6 +14,7 @@
 | 打开种子 | 选择本地 `.torrent` 文件并打开文件选择窗口 |
 | 设置 | 设置下载目录、代理、并发数、BT 和 M3U8 参数 |
 | 全部开始 / 全部暂停 | 启动或暂停全部可操作任务 |
+| BT 文件 | 重新选择所选 BT 任务需要下载的文件 |
 | 打开文件 / 打开目录 | 打开已下载内容或所在目录 |
 | 重新下载 | 清理任务运行态并重新下载 |
 | 移除任务 | 从任务列表移除；是否清理文件取决于操作选项 |
@@ -28,6 +29,12 @@
 
 直接粘贴 `http://` 或 `https://` 地址。创建任务前应用会探测文件名、大小和分块能力；同名任务、已有目标文件和临时分块文件会参与去重检查。
 
+### FTP / FTPS
+
+支持 `ftp://` 普通 FTP、`ftps://` 隐式 TLS 和 `ftpes://` 显式 TLS 单文件地址。地址可包含用户名与密码，例如 `ftp://user:password@host/path/file.zip`；任务列表和持久任务 URL 会移除凭据。未填写账户时使用匿名登录。
+
+FTP 下载使用 `.part` 文件断点续传；服务器不接受 REST 恢复时会自动从头重试。全局限速和重试次数同样生效。当前仅支持单文件，不递归下载远程目录；代理设置为空时直连，设置代理时仅支持 SOCKS5/SOCKS5H。
+
 ### M3U8
 
 粘贴 `.m3u8` 清单地址。M3U8 下载依赖设置中指定的 `N_m3u8DL-RE`，合并流程依赖 FFmpeg。外部工具路径或参数错误会显示在任务详情中。
@@ -39,7 +46,7 @@
 - 本地 `.torrent` 路径；
 - `file://` torrent 地址；
 - HTTP(S) 远程 `.torrent`；
-- v1 `btih` Magnet 地址。
+- v1 `btih`、v2 `btmh` 以及同时包含二者的混合 Magnet 地址。
 
 解析 Magnet 时应用会等待元数据，默认超时 30 秒。操作可取消，不会阻塞主窗口。
 
@@ -55,6 +62,8 @@ BT 功能由同目录的 `gd3-bt-runtime.exe` 提供。复制或安装应用时�
 - 底部汇总显示所选文件数与总大小。
 
 至少需要选择一个文件。Padding 文件不会出现在普通选择列表中；共享边界块所需的 padding 或未选文件字节会写入任务自有的隐藏目录，不计入所选文件进度。
+
+任务开始后仍可选中 BT 任务并选择 **BT 文件**。程序会暂停对应 BT runtime、保存最新校验进度、应用新的文件选择，然后自动恢复此前处于活动状态的任务；原本手动暂停的任务保持暂停。
 
 ## 4. 任务状态
 
@@ -128,7 +137,7 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈�
 便携发布同时提供 ZIP 和同名 `.sha256`。需要手动校验时可在 PowerShell 中执行：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.12-stage18-windows-x64-portable.zip
+Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.13-stage20-windows-x64-portable.zip
 ```
 
 将命令输出与 ZIP 同目录的 `.sha256` 文件比较；两者必须完全一致。外部校验文件是当前发布包哈希的权威记录。
@@ -139,7 +148,7 @@ Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.12-stage18-windows-x64-port
 
 ### Magnet 一直等待元数据
 
-检查网络、Tracker、DHT、代理设置和系统防火墙；可提高 Metadata timeout 或添加 Tracker。仅包含 BT v2 标识的 Magnet 当前不在已验证范围内。
+检查网络、Tracker、DHT、代理设置和系统防火墙；可提高元数据超时或添加 Tracker。v1、v2-only 和混合 Magnet 均会进入同一元数据解析流程。
 
 ### BT 无 Peer 或速度为零
 

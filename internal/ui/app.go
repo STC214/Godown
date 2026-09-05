@@ -118,6 +118,54 @@ func Run(options Options) error {
 			})
 		}()
 	}
+	editSelectedBTFiles := func() {
+		taskID := selectedTaskID
+		if taskID == "" {
+			statusLabel.SetText("请先选择任务。")
+			return
+		}
+		task, ok := options.Scheduler.Task(taskID)
+		if !ok {
+			statusLabel.SetText("所选任务已失效。")
+			return
+		}
+		if task.PackID != "bt" {
+			statusLabel.SetText("只有 BitTorrent 任务可以调整文件选择。")
+			return
+		}
+		edited, accepted, err := runBTSelectionDialog(mainWindow, task, currentSettings.ThemeMode)
+		if err != nil {
+			statusLabel.SetText("打开种子文件选择窗口失败：" + err.Error())
+			return
+		}
+		if !accepted {
+			return
+		}
+		files, err := btdownload.FilesFromTask(edited)
+		if err != nil {
+			statusLabel.SetText("读取文件选择失败：" + err.Error())
+			return
+		}
+		indexes := make([]int, 0, len(files))
+		for _, file := range files {
+			if file.Selected {
+				indexes = append(indexes, file.Index)
+			}
+		}
+		statusLabel.SetText("正在应用 BitTorrent 文件选择…")
+		go func() {
+			err := options.Scheduler.EditTask(taskID, func(latest core.Task) (core.Task, error) {
+				return btdownload.SetSelectedFiles(latest, indexes)
+			})
+			app.Post(func() {
+				if err != nil {
+					statusLabel.SetText("调整 BitTorrent 文件失败：" + err.Error())
+					return
+				}
+				statusLabel.SetText("BitTorrent 文件选择已更新。")
+			})
+		}()
+	}
 	removeSelectedTask := func() {
 		if selectedTaskID == "" {
 			statusLabel.SetText("请先选择任务。")
@@ -375,6 +423,10 @@ func Run(options Options) error {
 								OnClicked: redownloadSelectedTask,
 							},
 							PushButton{
+								Text:      "BT 文件",
+								OnClicked: editSelectedBTFiles,
+							},
+							PushButton{
 								Text:      "移除任务",
 								OnClicked: removeSelectedTask,
 							},
@@ -457,6 +509,7 @@ func Run(options Options) error {
 						ContextMenuItems: []MenuItem{
 							Action{Text: "暂停/继续", OnTriggered: toggleSelectedTask},
 							Action{Text: "重新下载", OnTriggered: redownloadSelectedTask},
+							Action{Text: "选择 BT 文件", OnTriggered: editSelectedBTFiles},
 							Separator{},
 							Action{Text: "打开目录", OnTriggered: openSelectedTaskFolder},
 							Action{Text: "打开文件", OnTriggered: openSelectedTaskFile},

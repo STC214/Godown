@@ -274,6 +274,98 @@ func (s *Scheduler) Snapshot() []TaskSnapshot {
 	return s.snapshotLocked()
 }
 
+// Task returns a detached copy suitable for task-specific edit dialogs.
+func (s *Scheduler) Task(taskID string) (Task, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task := s.tasks[taskID]
+	if task == nil {
+		return Task{}, false
+	}
+	return cloneTask(*task), true
+}
+
+// EditTask stops an active worker, applies an edit to its latest checkpoint,
+// persists the result, and resumes tasks that were not explicitly paused.
+func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error {
+	if edit == nil {
+		return errors.New("task editor is nil")
+	}
+	s.mu.Lock()
+	task := s.tasks[taskID]
+	if task == nil {
+		s.mu.Unlock()
+		return errors.New("task not found")
+	}
+	resume := task.Status != StatusPaused && task.Status != StatusCanceled
+	var done <-chan struct{}
+	if running := s.running[taskID]; running != nil {
+		task.Status = StatusPaused
+		task.Stage.Status = StatusPaused
+		task.Speed = 0
+		task.Stage.Speed = 0
+		running.cancel()
+		done = running.done
+		s.emitLocked()
+	}
+	s.mu.Unlock()
+
+	if done != nil {
+		<-done
+	}
+
+	s.mu.Lock()
+	task = s.tasks[taskID]
+	if task == nil {
+		s.mu.Unlock()
+		return errors.New("task not found")
+	}
+	original := cloneTask(*task)
+	s.mu.Unlock()
+
+	edited, err := edit(original)
+	if err != nil {
+		s.mu.Lock()
+		if current := s.tasks[taskID]; current != nil && resume {
+			current.Status = StatusWaiting
+			current.Stage.Status = StatusWaiting
+			s.scheduleLocked(taskID)
+			s.scheduleSaveLocked()
+			s.emitLocked()
+		}
+		s.mu.Unlock()
+		return err
+	}
+	edited.ID = original.ID
+	edited.CreatedAt = original.CreatedAt
+	edited.PackID = original.PackID
+	edited.Speed = 0
+	edited.Stage.Speed = 0
+	edited.Error = ""
+	edited.Stage.Error = ""
+	if resume {
+		edited.Status = StatusWaiting
+		edited.Stage.Status = StatusWaiting
+	} else {
+		edited.Status = StatusPaused
+		edited.Stage.Status = StatusPaused
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tasks[taskID] == nil {
+		return errors.New("task not found")
+	}
+	cloned := cloneTask(edited)
+	s.tasks[taskID] = &cloned
+	if resume {
+		s.scheduleLocked(taskID)
+	}
+	s.scheduleSaveLocked()
+	s.emitLocked()
+	return nil
+}
+
 func (s *Scheduler) StopAll() {
 	s.mu.Lock()
 	s.stopping = true

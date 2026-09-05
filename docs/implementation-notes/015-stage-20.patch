@@ -1,0 +1,1255 @@
+diff --git a/GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md b/GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md
+index ef0d789..dd4cb20 100644
+--- a/GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md
++++ b/GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md
+@@ -2,7 +2,7 @@
+ 
+ 本文档是后续重构的基准。目标不是机械翻译 Python/PySide6 代码，而是在 Windows 上用 Go + Win32 做一个资源占用更低、分发更干净、体验足够现代的下载器。实现时需要持续对照 Ghost-Downloader-3 当前源码，确保关键行为一致，UI 则做功能完整和视觉近似，不追求 PySide6/qfluentwidgets 的逐像素复刻。
+ 
+-> 实现状态（2026-09-05）：蓝图已推进至 Stage 19，当前验证版本仍为 `0.1.12-stage18`。HTTP、M3U8、BitTorrent/Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；设置窗口采用四页自适应布局，分页页面与原生页签头均同步深浅主题，全部主要 UI 入口采用简体中文。Stage 19 清除了本地历史构建、测试夹具、运行时临时文件及旧发布包，并建立只保留最新便携包的维护约定。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/014-stage-19-workspace-cleanup.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
++> 实现状态（2026-09-05）：蓝图已推进至 Stage 20，当前验证版本为 `0.1.13-stage20`。HTTP、FTP/FTPS、M3U8、BitTorrent v1/v2 Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；BT 任务支持创建后重新选择文件，并通过受控 runtime 重启保存检查点和恢复任务。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
+ 
+ ## 0. 本地对照仓库
+ 
+diff --git a/README.md b/README.md
+index ecb2dd7..b9885c8 100644
+--- a/README.md
++++ b/README.md
+@@ -2,14 +2,15 @@
+ 
+ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
+ 
+-> 当前实现进度为 Stage 19：在 Stage 18 界面修复完成后，清理历史构建、测试夹具、运行时临时文件和旧发布包，并同步全部当前文档。程序验证版本仍为 `0.1.12-stage18`，功能代码未变。详见 [Stage 19 维护记录](docs/implementation-notes/014-stage-19-workspace-cleanup.md)。
++> 当前实现进度为 Stage 20：新增 FTP/FTPS 断点续传、BT v2-only Magnet，以及运行中重新选择 BT 文件并自动恢复任务。详见 [Stage 20 实现记录](docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md)。
+ 
+ ## 已实现功能
+ 
+ - HTTP(S) 分块下载、重试、限速、暂停与继续。
++- FTP、隐式 FTPS（`ftps://`）和显式 FTPS（`ftpes://`）单文件下载、重试、限速与断点续传。
+ - M3U8 解析、外部运行时调用、下载与合并。
+-- BitTorrent：本地/远程 `.torrent`、`file://` 和 v1 `btih` Magnet。
+-- BT 多文件选择、Tracker 合并、校验块断点续传及完成后做种。
++- BitTorrent：本地/远程 `.torrent`、`file://`、v1 `btih`、v2 `btmh` 及混合 Magnet。
++- BT 多文件选择、运行中改选、Tracker 合并、校验块断点续传及完成后做种。
+ - BT 分享率/做种时长限制、DHT、端口映射偏好和连接数设置。
+ - 任务持久化、并发调度、托盘、通知及浏览器桥接。
+ - HTTP(S)/SOCKS5 代理、自定义请求头与 Cookie。
+@@ -47,7 +48,7 @@ go mod download
+ 
+ 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
+ 
+-当前验证版本为 `0.1.12-stage18`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
++当前验证版本为 `0.1.13-stage20`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+ 
+ ### 工作区清洁约定
+ 
+@@ -58,7 +59,7 @@ go mod download
+ 
+ ### 添加下载
+ 
+-1. 在顶部输入框粘贴 HTTP(S)、M3U8 或 Magnet 地址，然后选择 **添加地址**。
++1. 在顶部输入框粘贴 HTTP(S)、FTP/FTPS、M3U8 或 Magnet 地址，然后选择 **添加地址**。
+ 2. 添加本地 torrent 时选择 **打开种子**。
+ 3. BT 任务会先打开文件选择窗口；至少选择一个文件后才能加入队列。
+ 4. 使用 **全部开始**、**全部暂停** 或任务右键菜单控制任务。
+@@ -89,7 +90,7 @@ Stage 15 验证结果：项目语句覆盖率为 54.1%；`cmd/gd3win`、`cmd/gd3
+ 
+ ## 当前边界
+ 
+-- BT v2-only Magnet 尚未覆盖。
+-- 任务开始后暂不支持动态修改 BT 文件优先级。
++- FTP 系列地址当前支持单文件下载，不递归下载远程目录；FTP 代理支持直连或 SOCKS5。
++- 修改运行中 BT 文件选择时，程序会短暂停止 BT runtime、保存最新检查点、应用选择后自动恢复，以避免运行时状态竞争。
+ - BT 的 HTTP 元数据、HTTP/WebSocket Tracker 与 WebSeed 遵循代理设置；原生 Peer、DHT 和 UDP Tracker 使用 BT 引擎网络栈。
+ - LSD、UPnP 与 NAT-PMP 受当前 BT 引擎公开接口约束，详见 [Stage 5 实现记录](docs/implementation-notes/005-stage-5-bittorrent.md)。
+diff --git a/docs/DEVELOPMENT.zh-CN.md b/docs/DEVELOPMENT.zh-CN.md
+index aa0901b..d03e3bf 100644
+--- a/docs/DEVELOPMENT.zh-CN.md
++++ b/docs/DEVELOPMENT.zh-CN.md
+@@ -24,6 +24,7 @@ internal/core/              Task 模型、状态机与 Scheduler
+ internal/config/            路径和 Settings
+ internal/storage/           SQLite 配置与任务存储
+ internal/download/http/     HTTP 探测、分块下载和恢复
++internal/download/ftp/      FTP/FTPS 探测、REST 恢复和单流下载
+ internal/download/m3u8/     M3U8 解析及外部下载器 Worker
+ internal/download/ffmpeg/   媒体合并
+ internal/download/bt/       torrent 解析、文件选择模型、Worker 与恢复存储
+@@ -97,6 +98,10 @@ BT 进入 `seeding` 后设置 `UsesSlot=false`，因此做种任务不会阻塞
+ 5. 为暂停、恢复、清理、重新下载和应用退出补齐测试。
+ 6. 如任务存在“不占下载槽”的阶段，通过 `UsesSlot` 上报，不要绕过 Scheduler。
+ 
++FTP Worker 使用独立 `.part` 文件恢复下载：`ftp://` 为普通 FTP，`ftps://` 为默认 990 端口的隐式 TLS，`ftpes://` 为默认 21 端口并通过 `AUTH TLS` 升级的显式 TLS。任务 URL 会移除凭据，连接信息保存在任务阶段状态；代理仅接受 SOCKS5。完成后 `.part` 原子改名为目标文件。
++
++`Scheduler.EditTask` 是运行中修改任务配置的统一边界。它先取消当前 Worker 并等待其最终检查点，再对最新任务副本应用编辑；此前处于活动状态的任务会重新加入调度，明确暂停的任务保持暂停。BT 文件改选通过该接口更新 `files` 状态，避免 GUI 直接修改运行时状态。
++
+ ## 7. BT 运行时边界
+ 
+ Go 在 Windows 上默认把包静态链接进 EXE。为了保留完整符号/DWARF 调试能力，同时控制 GUI 文件体积，BT 引擎采用独立进程而不是剥离调试符号：
+@@ -149,8 +154,8 @@ Remove-Item Env:\GD3_BT_RUNTIME_TEST_PATH
+ ### 便携包验收
+ 
+ ```powershell
+-.\scripts\package-portable.ps1 -Version 0.1.12-stage18
+-Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.12-stage18-windows-x64-portable.zip
++.\scripts\package-portable.ps1 -Version 0.1.13-stage20
++Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.13-stage20-windows-x64-portable.zip
+ ```
+ 
+ 发布目录只保留 ZIP 与同名 `.sha256`；展开目录由脚本清理。验收时还要逐项核对 ZIP 内 `release-manifest.json` 的大小和 SHA-256，并确认主程序、BT runtime、README、用户指南和便携更新脚本均在包内。
+diff --git a/docs/USER_GUIDE.zh-CN.md b/docs/USER_GUIDE.zh-CN.md
+index 39083f3..3538bba 100644
+--- a/docs/USER_GUIDE.zh-CN.md
++++ b/docs/USER_GUIDE.zh-CN.md
+@@ -1,6 +1,6 @@
+ # Ghost Downloader 3 用户指南
+ 
+-> 适用于 `0.1.12-stage18` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
++> 适用于 `0.1.13-stage20` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
+ 
+ ## 1. 界面概览
+ 
+@@ -14,6 +14,7 @@
+ | 打开种子 | 选择本地 `.torrent` 文件并打开文件选择窗口 |
+ | 设置 | 设置下载目录、代理、并发数、BT 和 M3U8 参数 |
+ | 全部开始 / 全部暂停 | 启动或暂停全部可操作任务 |
++| BT 文件 | 重新选择所选 BT 任务需要下载的文件 |
+ | 打开文件 / 打开目录 | 打开已下载内容或所在目录 |
+ | 重新下载 | 清理任务运行态并重新下载 |
+ | 移除任务 | 从任务列表移除；是否清理文件取决于操作选项 |
+@@ -28,6 +29,12 @@
+ 
+ 直接粘贴 `http://` 或 `https://` 地址。创建任务前应用会探测文件名、大小和分块能力；同名任务、已有目标文件和临时分块文件会参与去重检查。
+ 
++### FTP / FTPS
++
++支持 `ftp://` 普通 FTP、`ftps://` 隐式 TLS 和 `ftpes://` 显式 TLS 单文件地址。地址可包含用户名与密码，例如 `ftp://user:password@host/path/file.zip`；任务列表和持久任务 URL 会移除凭据。未填写账户时使用匿名登录。
++
++FTP 下载使用 `.part` 文件断点续传；服务器不接受 REST 恢复时会自动从头重试。全局限速和重试次数同样生效。当前仅支持单文件，不递归下载远程目录；代理设置为空时直连，设置代理时仅支持 SOCKS5/SOCKS5H。
++
+ ### M3U8
+ 
+ 粘贴 `.m3u8` 清单地址。M3U8 下载依赖设置中指定的 `N_m3u8DL-RE`，合并流程依赖 FFmpeg。外部工具路径或参数错误会显示在任务详情中。
+@@ -39,7 +46,7 @@
+ - 本地 `.torrent` 路径；
+ - `file://` torrent 地址；
+ - HTTP(S) 远程 `.torrent`；
+-- v1 `btih` Magnet 地址。
++- v1 `btih`、v2 `btmh` 以及同时包含二者的混合 Magnet 地址。
+ 
+ 解析 Magnet 时应用会等待元数据，默认超时 30 秒。操作可取消，不会阻塞主窗口。
+ 
+@@ -56,6 +63,8 @@ BT 功能由同目录的 `gd3-bt-runtime.exe` 提供。复制或安装应用时
+ 
+ 至少需要选择一个文件。Padding 文件不会出现在普通选择列表中；共享边界块所需的 padding 或未选文件字节会写入任务自有的隐藏目录，不计入所选文件进度。
+ 
++任务开始后仍可选中 BT 任务并选择 **BT 文件**。程序会暂停对应 BT runtime、保存最新校验进度、应用新的文件选择，然后自动恢复此前处于活动状态的任务；原本手动暂停的任务保持暂停。
++
+ ## 4. 任务状态
+ 
+ | 状态 | 含义 |
+@@ -128,7 +137,7 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈
+ 便携发布同时提供 ZIP 和同名 `.sha256`。需要手动校验时可在 PowerShell 中执行：
+ 
+ ```powershell
+-Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.12-stage18-windows-x64-portable.zip
++Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.13-stage20-windows-x64-portable.zip
+ ```
+ 
+ 将命令输出与 ZIP 同目录的 `.sha256` 文件比较；两者必须完全一致。外部校验文件是当前发布包哈希的权威记录。
+@@ -139,7 +148,7 @@ Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.12-stage18-windows-x64-port
+ 
+ ### Magnet 一直等待元数据
+ 
+-检查网络、Tracker、DHT、代理设置和系统防火墙；可提高 Metadata timeout 或添加 Tracker。仅包含 BT v2 标识的 Magnet 当前不在已验证范围内。
++检查网络、Tracker、DHT、代理设置和系统防火墙；可提高元数据超时或添加 Tracker。v1、v2-only 和混合 Magnet 均会进入同一元数据解析流程。
+ 
+ ### BT 无 Peer 或速度为零
+ 
+diff --git a/docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md b/docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md
+new file mode 100644
+index 0000000..8c3623d
+--- /dev/null
++++ b/docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md
+@@ -0,0 +1,37 @@
++# Stage 20：FTP/FTPS、BT v2 Magnet 与运行中改选
++
++日期：2026-09-05
++
++## 实现内容
++
++### FTP / FTPS
++
++- 新增 `internal/download/ftp`，接入现有解析路由、Registry、Scheduler、全局限速和重试设置；
++- 支持普通 FTP、隐式 FTPS 和显式 FTPS 单文件下载；
++- 支持匿名或 URL 用户信息登录，持久任务 URL 会移除凭据；
++- 使用 `.part` 文件及 FTP REST 实现暂停、重启后的断点续传；服务器拒绝 REST 时安全地从头开始；
++- 支持直连及 SOCKS5/SOCKS5H 代理；
++- 完成后将 `.part` 改名为最终文件，重新下载时同步清理临时文件。
++
++### BitTorrent v2 Magnet
++
++- GUI 轻量客户端识别 `urn:btmh`；
++- BT runtime 改用 `metainfo.ParseMagnetV2Uri`，接受 v1、v2-only 和 hybrid Magnet；
++- 元数据解析、Tracker 合并、文件选择与现有 runtime 下载流程保持一致。
++
++### 运行中重新选择 BT 文件
++
++- 新增 `Scheduler.Task` 和 `Scheduler.EditTask`；
++- 编辑活动任务时，先取消 Worker 并等待最新检查点，再更新任务并恢复调度；
++- 主窗口新增 **BT 文件** 按钮，任务右键菜单新增 **选择 BT 文件**；
++- 重新计算所选总大小、已接收字节和进度；原本手动暂停的任务编辑后保持暂停。
++
++## 验证
++
++- FTP 本地协议集成测试覆盖登录、SIZE、EPSV、REST、RETR、断点续传、最终改名和进度；
++- 单元测试覆盖 FTP/FTPS/FTPES 识别、凭据移除及 TLS 模式；
++- BT 测试覆盖合法 v2-only Magnet 识别、解析器调用和 Tracker 保留；
++- Scheduler 测试覆盖活动 Worker 停止、编辑及使用新状态重启；
++- 执行 `go test -count=1 ./...`、`go vet ./...`、发布构建和便携打包。
++
++验证结果：全量测试、关键包竞态检测、静态检查和发布构建退出码均为 `0`；`0.1.13-stage20` 便携包 SHA-256 为 `e25886ac917e4b62e74645ac1c55c2d94f74353d7c483eb6193d9c5970ba8f63`。
+diff --git a/go.mod b/go.mod
+index 1ef066d..553a831 100644
+--- a/go.mod
++++ b/go.mod
+@@ -4,6 +4,7 @@ go 1.26.6
+ 
+ require (
+ 	github.com/anacrolix/torrent v1.61.0
++	github.com/jlaffaye/ftp v0.2.0
+ 	github.com/lxn/walk v0.0.0-20210112085537-c389da54e794
+ 	github.com/lxn/win v0.0.0-20210218163916-a377121e959e
+ 	golang.org/x/net v0.55.0
+@@ -47,6 +48,8 @@ require (
+ 	github.com/google/go-cmp v0.7.0 // indirect
+ 	github.com/google/uuid v1.6.0 // indirect
+ 	github.com/gorilla/websocket v1.5.3 // indirect
++	github.com/hashicorp/errwrap v1.0.0 // indirect
++	github.com/hashicorp/go-multierror v1.1.1 // indirect
+ 	github.com/huandu/xstrings v1.3.2 // indirect
+ 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
+ 	github.com/mattn/go-isatty v0.0.20 // indirect
+diff --git a/go.sum b/go.sum
+index bec28cc..571111b 100644
+--- a/go.sum
++++ b/go.sum
+@@ -182,6 +182,10 @@ github.com/gorilla/context v1.1.1/go.mod h1:kBGZzfjB9CEq2AlWe17Uuf7NDRt0dE0s8S51
+ github.com/gorilla/mux v1.6.2/go.mod h1:1lud6UwP+6orDFRuTfBEV8e9/aOM/c4fVVCaMa2zaAs=
+ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
+ github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
++github.com/hashicorp/errwrap v1.0.0 h1:hLrqtEDnRye3+sgx6z4qVLNuviH3MR5aQ0ykNJa/UYA=
++github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
++github.com/hashicorp/go-multierror v1.1.1 h1:H5DkEtf6CXdFp0N0Em5UCwQpXMWke8IA0+lD48awMYo=
++github.com/hashicorp/go-multierror v1.1.1/go.mod h1:iw975J/qwKPdAO1clOe2L8331t/9/fmwbPZ6JB6eMoM=
+ github.com/hashicorp/golang-lru v0.5.0 h1:CL2msUPvZTLb5O648aiLNJw3hnBxN2+1Jq8rCOH9wdo=
+ github.com/hashicorp/golang-lru v0.5.0/go.mod h1:/m3WP610KZHVQ1SGc6re/UDhFvYD7pJ4Ao+sR/qLZy8=
+ github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=
+@@ -195,6 +199,8 @@ github.com/huandu/xstrings v1.3.0/go.mod h1:y5/lhBue+AyNmUVz9RLU9xbLR0o4KIIExikq
+ github.com/huandu/xstrings v1.3.1/go.mod h1:y5/lhBue+AyNmUVz9RLU9xbLR0o4KIIExikq4ovT0aE=
+ github.com/huandu/xstrings v1.3.2 h1:L18LIDzqlW6xN2rEkpdV8+oL/IXWJ1APd+vsdYy4Wdw=
+ github.com/huandu/xstrings v1.3.2/go.mod h1:y5/lhBue+AyNmUVz9RLU9xbLR0o4KIIExikq4ovT0aE=
++github.com/jlaffaye/ftp v0.2.0 h1:lXNvW7cBu7R/68bknOX3MrRIIqZ61zELs1P2RAiA3lg=
++github.com/jlaffaye/ftp v0.2.0/go.mod h1:is2Ds5qkhceAPy2xD6RLI6hmp/qysSoymZ+Z2uTnspI=
+ github.com/json-iterator/go v1.1.6/go.mod h1:+SdeFBvtyEkXs7REEP0seUULqWtbJapLOCVDaaPEHmU=
+ github.com/json-iterator/go v1.1.9/go.mod h1:KdQUCv79m/52Kvf8AW2vK1V8akMuk1QjK/uOdHXbAo4=
+ github.com/jtolds/gls v4.2.1+incompatible/go.mod h1:QJZ7F/aHp+rZTRtaJ1ow/lLfFfVYBRgL+9YlvaHOwJU=
+diff --git a/internal/app/app.go b/internal/app/app.go
+index 43cc04c..d2da6c0 100644
+--- a/internal/app/app.go
++++ b/internal/app/app.go
+@@ -18,6 +18,7 @@ import (
+ 	"ghost-downloader-go-win32/internal/config"
+ 	"ghost-downloader-go-win32/internal/core"
+ 	ffmpegdownload "ghost-downloader-go-win32/internal/download/ffmpeg"
++	ftpdownload "ghost-downloader-go-win32/internal/download/ftp"
+ 	httpdownload "ghost-downloader-go-win32/internal/download/http"
+ 	m3u8download "ghost-downloader-go-win32/internal/download/m3u8"
+ 	"ghost-downloader-go-win32/internal/logging"
+@@ -82,6 +83,7 @@ func Run() error {
+ 	currentSettings := settings
+ 	registry := core.NewRegistry()
+ 	registry.Register("http", httpdownload.Worker{Limiter: limiter})
++	registry.Register("ftp", ftpdownload.Worker{Limiter: limiter})
+ 	registry.Register("bt", btdownload.Worker{})
+ 	registry.Register("m3u8", m3u8download.Worker{})
+ 	registry.Register("ffmpeg", ffmpegdownload.Worker{})
+@@ -233,6 +235,8 @@ func createTaskFromSource(ctx context.Context, source string, settings config.Se
+ 	switch {
+ 	case kind == "bt" || (kind == "" && btdownload.IsSource(source)):
+ 		task, err = btdownload.Resolve(ctx, source, btOptionsFromSettings(settings, headers))
++	case kind == "ftp" || (kind == "" && ftpdownload.IsSource(source)):
++		task, err = ftpdownload.Parse(ctx, source, settings.DownloadDir, settings.ProxyURL, settings.RetryCount)
+ 	case kind == "m3u8" || (kind == "" && m3u8download.IsManifestSource(source)):
+ 		var result m3u8download.ParseResult
+ 		result, err = m3u8download.Parse(ctx, source, settings, headers)
+diff --git a/internal/btruntime/client.go b/internal/btruntime/client.go
+index 78fb9e4..bd9f19c 100644
+--- a/internal/btruntime/client.go
++++ b/internal/btruntime/client.go
+@@ -88,7 +88,9 @@ func IsSource(source string) bool {
+ 		switch strings.ToLower(parsed.Scheme) {
+ 		case "magnet":
+ 			for _, exactTopic := range parsed.Query()["xt"] {
+-				if strings.HasPrefix(strings.ToLower(exactTopic), "urn:btih:") && len(exactTopic) > len("urn:btih:") {
++				lower := strings.ToLower(exactTopic)
++				if (strings.HasPrefix(lower, "urn:btih:") && len(exactTopic) > len("urn:btih:")) ||
++					(strings.HasPrefix(lower, "urn:btmh:") && len(exactTopic) > len("urn:btmh:")) {
+ 					return true
+ 				}
+ 			}
+@@ -230,12 +232,14 @@ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error)
+ 		return core.Task{}, errors.New("at least one BitTorrent file must be selected")
+ 	}
+ 	var total int64
++	var received int64
+ 	var count int
+ 	for index := range files {
+ 		_, files[index].Selected = selected[files[index].Index]
+ 		if files[index].Selected {
+ 			files[index].Priority = 4
+ 			total += files[index].Size
++			received += files[index].Downloaded
+ 			count++
+ 		} else {
+ 			files[index].Priority = 0
+@@ -258,15 +262,20 @@ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error)
+ 	task.Stage.State[stateFiles] = string(encoded)
+ 	task.FileSize = total
+ 	task.Stage.FileSize = total
+-	if task.Received > total {
+-		task.Received = total
+-	}
+-	if task.Stage.Received > total {
+-		task.Stage.Received = total
+-	}
++	task.Received = received
++	task.Stage.Received = received
++	task.Progress = selectionProgress(received, total)
++	task.Stage.Progress = task.Progress
+ 	return task, nil
+ }
+ 
++func selectionProgress(received, total int64) float64 {
++	if total <= 0 {
++		return 0
++	}
++	return float64(received) / float64(total) * 100
++}
++
+ func ParseTrackers(text string) []string {
+ 	seen := make(map[string]struct{})
+ 	var result []string
+diff --git a/internal/btruntime/client_test.go b/internal/btruntime/client_test.go
+index 7ee7ae1..77f26df 100644
+--- a/internal/btruntime/client_test.go
++++ b/internal/btruntime/client_test.go
+@@ -13,6 +13,7 @@ func TestIsSourceAndParseTrackers(t *testing.T) {
+ 		"file:///C:/downloads/fixture.torrent",
+ 		"https://example.test/fixture.torrent",
+ 		"magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
++		"magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e",
+ 	} {
+ 		if !IsSource(source) {
+ 			t.Fatalf("expected supported source %q", source)
+@@ -42,7 +43,7 @@ func TestSetSelectedFilesClonesTaskState(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if files[0].Selected || !files[1].Selected || updated.FileSize != 20 || updated.Stage.FileSize != 20 {
++	if files[0].Selected || !files[1].Selected || updated.FileSize != 20 || updated.Stage.FileSize != 20 || updated.Received != 0 {
+ 		t.Fatalf("updated task=%#v files=%#v", updated, files)
+ 	}
+ 	if task.Stage.State[stateFiles] == updated.Stage.State[stateFiles] || task.Stage.State["immutable"] != "yes" {
+diff --git a/internal/core/model.go b/internal/core/model.go
+index a6f708b..905288f 100644
+--- a/internal/core/model.go
++++ b/internal/core/model.go
+@@ -78,6 +78,11 @@ func (t Task) CleanupFiles() error {
+ 		}
+ 		return nil
+ 	}
++	if t.PackID == "ftp" {
++		if err := removeIfExists(outputFile + ".part"); err != nil {
++			return err
++		}
++	}
+ 	if err := removeIfExists(outputFile); err != nil {
+ 		return err
+ 	}
+diff --git a/internal/core/scheduler.go b/internal/core/scheduler.go
+index 3ab5942..267b553 100644
+--- a/internal/core/scheduler.go
++++ b/internal/core/scheduler.go
+@@ -274,6 +274,98 @@ func (s *Scheduler) Snapshot() []TaskSnapshot {
+ 	return s.snapshotLocked()
+ }
+ 
++// Task returns a detached copy suitable for task-specific edit dialogs.
++func (s *Scheduler) Task(taskID string) (Task, bool) {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	task := s.tasks[taskID]
++	if task == nil {
++		return Task{}, false
++	}
++	return cloneTask(*task), true
++}
++
++// EditTask stops an active worker, applies an edit to its latest checkpoint,
++// persists the result, and resumes tasks that were not explicitly paused.
++func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error {
++	if edit == nil {
++		return errors.New("task editor is nil")
++	}
++	s.mu.Lock()
++	task := s.tasks[taskID]
++	if task == nil {
++		s.mu.Unlock()
++		return errors.New("task not found")
++	}
++	resume := task.Status != StatusPaused && task.Status != StatusCanceled
++	var done <-chan struct{}
++	if running := s.running[taskID]; running != nil {
++		task.Status = StatusPaused
++		task.Stage.Status = StatusPaused
++		task.Speed = 0
++		task.Stage.Speed = 0
++		running.cancel()
++		done = running.done
++		s.emitLocked()
++	}
++	s.mu.Unlock()
++
++	if done != nil {
++		<-done
++	}
++
++	s.mu.Lock()
++	task = s.tasks[taskID]
++	if task == nil {
++		s.mu.Unlock()
++		return errors.New("task not found")
++	}
++	original := cloneTask(*task)
++	s.mu.Unlock()
++
++	edited, err := edit(original)
++	if err != nil {
++		s.mu.Lock()
++		if current := s.tasks[taskID]; current != nil && resume {
++			current.Status = StatusWaiting
++			current.Stage.Status = StatusWaiting
++			s.scheduleLocked(taskID)
++			s.scheduleSaveLocked()
++			s.emitLocked()
++		}
++		s.mu.Unlock()
++		return err
++	}
++	edited.ID = original.ID
++	edited.CreatedAt = original.CreatedAt
++	edited.PackID = original.PackID
++	edited.Speed = 0
++	edited.Stage.Speed = 0
++	edited.Error = ""
++	edited.Stage.Error = ""
++	if resume {
++		edited.Status = StatusWaiting
++		edited.Stage.Status = StatusWaiting
++	} else {
++		edited.Status = StatusPaused
++		edited.Stage.Status = StatusPaused
++	}
++
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	if s.tasks[taskID] == nil {
++		return errors.New("task not found")
++	}
++	cloned := cloneTask(edited)
++	s.tasks[taskID] = &cloned
++	if resume {
++		s.scheduleLocked(taskID)
++	}
++	s.scheduleSaveLocked()
++	s.emitLocked()
++	return nil
++}
++
+ func (s *Scheduler) StopAll() {
+ 	s.mu.Lock()
+ 	s.stopping = true
+diff --git a/internal/core/scheduler_test.go b/internal/core/scheduler_test.go
+index dc5e25b..a67b436 100644
+--- a/internal/core/scheduler_test.go
++++ b/internal/core/scheduler_test.go
+@@ -51,6 +51,18 @@ type countingWorker struct {
+ 	done    chan string
+ }
+ 
++type editableWorker struct {
++	started chan Task
++	done    chan string
++}
++
++func (w *editableWorker) Run(ctx context.Context, task Task, report func(ProgressUpdate)) error {
++	w.started <- task
++	<-ctx.Done()
++	w.done <- task.ID
++	return ctx.Err()
++}
++
+ func (w *countingWorker) Run(ctx context.Context, task Task, report func(ProgressUpdate)) error {
+ 	w.started <- task.ID
+ 	<-ctx.Done()
+@@ -58,6 +70,39 @@ func (w *countingWorker) Run(ctx context.Context, task Task, report func(Progres
+ 	return ctx.Err()
+ }
+ 
++func TestSchedulerEditTaskRestartsActiveWorkerWithLatestState(t *testing.T) {
++	registry := NewRegistry()
++	worker := &editableWorker{started: make(chan Task, 2), done: make(chan string, 2)}
++	registry.Register("fake", worker)
++	scheduler := NewScheduler(registry, &memoryTaskStore{}, 1)
++	defer scheduler.StopAll()
++	task := NewTask("fake", "example.bin", "https://example.test/example.bin", t.TempDir(), 10, NewStage("fake", "https://example.test/example.bin", 10, 1, 0, true, nil, ""))
++	task.Stage.State = map[string]string{"selection": "old"}
++	scheduler.Add(task)
++	select {
++	case <-worker.started:
++	case <-time.After(2 * time.Second):
++		t.Fatal("initial worker did not start")
++	}
++	if err := scheduler.EditTask(task.ID, func(current Task) (Task, error) {
++		current.Stage.State["selection"] = "new"
++		current.FileSize = 20
++		current.Stage.FileSize = 20
++		return current, nil
++	}); err != nil {
++		t.Fatal(err)
++	}
++	var restarted Task
++	select {
++	case restarted = <-worker.started:
++	case <-time.After(2 * time.Second):
++		t.Fatal("edited worker did not restart")
++	}
++	if restarted.Stage.State["selection"] != "new" || restarted.FileSize != 20 {
++		t.Fatalf("worker received stale task: %#v", restarted)
++	}
++}
++
+ type reportingWorker struct {
+ 	started chan string
+ 	update  ProgressUpdate
+diff --git a/internal/download/bt/parse.go b/internal/download/bt/parse.go
+index dafb2b0..c738bac 100644
+--- a/internal/download/bt/parse.go
++++ b/internal/download/bt/parse.go
+@@ -67,8 +67,8 @@ func IsSource(source string) bool {
+ 	if err == nil {
+ 		switch strings.ToLower(parsed.Scheme) {
+ 		case "magnet":
+-			_, err := metainfo.ParseMagnetUri(text)
+-			return err == nil
++			magnet, err := metainfo.ParseMagnetV2Uri(text)
++			return err == nil && (magnet.InfoHash.Ok || magnet.V2InfoHash.Ok)
+ 		case "http", "https":
+ 			return strings.EqualFold(filepath.Ext(parsed.Path), ".torrent")
+ 		case "file":
+@@ -188,7 +188,7 @@ func loadSource(ctx context.Context, source string, options Options) ([]byte, st
+ 	parsed, _ := url.Parse(source)
+ 	switch strings.ToLower(parsed.Scheme) {
+ 	case "magnet":
+-		magnet, err := metainfo.ParseMagnetUri(source)
++		magnet, err := metainfo.ParseMagnetV2Uri(source)
+ 		if err != nil {
+ 			return nil, "", "", nil, fmt.Errorf("invalid magnet URI: %w", err)
+ 		}
+diff --git a/internal/download/bt/parse_test.go b/internal/download/bt/parse_test.go
+index 4d24862..27999c6 100644
+--- a/internal/download/bt/parse_test.go
++++ b/internal/download/bt/parse_test.go
+@@ -43,8 +43,9 @@ func writeTorrent(t *testing.T, data []byte) string {
+ func TestIsSource(t *testing.T) {
+ 	validHash := strings.Repeat("a", 40)
+ 	cases := map[string]bool{
+-		"magnet:?xt=urn:btih:" + validHash:   true,
+-		"magnet:?xt=urn:btmh:abc":            false,
++		"magnet:?xt=urn:btih:" + validHash: true,
++		"magnet:?xt=urn:btmh:abc":          false,
++		"magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e": true,
+ 		`C:\downloads\sample.torrent`:        true,
+ 		"file:///C:/sample.torrent":          true,
+ 		"https://example.test/a.torrent?q=1": true,
+@@ -222,3 +223,26 @@ func TestResolveMagnetTimeoutAndCancellation(t *testing.T) {
+ 		t.Fatalf("cancel err=%v", err)
+ 	}
+ }
++
++func TestResolveV2OnlyMagnetUsesResolverAndTrackers(t *testing.T) {
++	magnet := "magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e&tr=https%3A%2F%2Ftracker.test%2Fannounce"
++	metadata := makeTorrent(t, metainfo.Info{Name: "v2-fixture.bin", PieceLength: 16, Length: 32}, "", nil)
++	called := false
++	task, err := Resolve(context.Background(), magnet, Options{
++		DownloadDir: t.TempDir(),
++		MagnetResolver: func(_ context.Context, source string, _ Options) ([]byte, error) {
++			called = source == magnet
++			return metadata, nil
++		},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	trackers, err := TrackersFromTask(task)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !called || task.Stage.State[stateSourceType] != "magnet" || !reflect.DeepEqual(trackers, []string{"https://tracker.test/announce"}) {
++		t.Fatalf("v2 magnet was not preserved: task=%#v trackers=%q", task, trackers)
++	}
++}
+diff --git a/internal/download/ftp/ftp.go b/internal/download/ftp/ftp.go
+new file mode 100644
+index 0000000..f512df4
+--- /dev/null
++++ b/internal/download/ftp/ftp.go
+@@ -0,0 +1,338 @@
++package ftpdownload
++
++import (
++	"context"
++	"crypto/tls"
++	"errors"
++	"fmt"
++	"io"
++	"net"
++	"net/url"
++	"os"
++	"path"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"time"
++
++	"github.com/jlaffaye/ftp"
++	"golang.org/x/net/proxy"
++
++	"ghost-downloader-go-win32/internal/core"
++	"ghost-downloader-go-win32/internal/ratelimit"
++)
++
++const (
++	stateHost       = "host"
++	stateRemotePath = "remotePath"
++	stateUsername   = "username"
++	statePassword   = "password"
++	stateTLSMode    = "tlsMode"
++	stateTimeout    = "timeoutSeconds"
++)
++
++type Worker struct {
++	Limiter *ratelimit.Limiter
++}
++
++type sourceInfo struct {
++	host, remotePath, username, password, tlsMode string
++	timeout                                       time.Duration
++}
++
++func IsSource(source string) bool {
++	u, err := url.Parse(strings.TrimSpace(source))
++	if err != nil {
++		return false
++	}
++	return strings.EqualFold(u.Scheme, "ftp") || strings.EqualFold(u.Scheme, "ftps") || strings.EqualFold(u.Scheme, "ftpes")
++}
++
++func Parse(ctx context.Context, source, downloadDir, proxyURL string, maxRetries int) (core.Task, error) {
++	info, cleanURL, err := parseSource(source)
++	if err != nil {
++		return core.Task{}, err
++	}
++	if err := validateProxy(proxyURL); err != nil {
++		return core.Task{}, err
++	}
++	conn, err := dial(ctx, info, proxyURL)
++	if err != nil {
++		return core.Task{}, err
++	}
++	defer conn.Quit()
++	size, err := conn.FileSize(info.remotePath)
++	if err != nil {
++		return core.Task{}, fmt.Errorf("读取 FTP 文件大小：%w", err)
++	}
++	title := filepath.Base(filepath.FromSlash(info.remotePath))
++	if title == "." || title == string(filepath.Separator) || title == "" {
++		return core.Task{}, errors.New("FTP 地址缺少文件名")
++	}
++	stage := core.NewStage("ftp", cleanURL, size, 1, maxRetries, true, nil, proxyURL)
++	stage.State = map[string]string{
++		stateHost: info.host, stateRemotePath: info.remotePath,
++		stateUsername: info.username, statePassword: info.password,
++		stateTLSMode: info.tlsMode, stateTimeout: strconv.Itoa(int(info.timeout / time.Second)),
++	}
++	return core.NewTask("ftp", title, cleanURL, downloadDir, size, stage), nil
++}
++
++func (w Worker) Run(ctx context.Context, task core.Task, report func(core.ProgressUpdate)) error {
++	info, err := sourceFromTask(task)
++	if err != nil {
++		return err
++	}
++	if report == nil {
++		report = func(core.ProgressUpdate) {}
++	}
++	if err := os.MkdirAll(task.Path, 0o755); err != nil {
++		return err
++	}
++	output := task.OutputFile()
++	partial := output + ".part"
++	var offset int64
++	if stat, statErr := os.Stat(partial); statErr == nil {
++		offset = stat.Size()
++	} else if !errors.Is(statErr, os.ErrNotExist) {
++		return statErr
++	}
++	if task.FileSize > 0 && offset > task.FileSize {
++		if err := os.Truncate(partial, 0); err != nil {
++			return err
++		}
++		offset = 0
++	}
++	received := offset
++	report(update(received, task.FileSize, 0, "正在连接 FTP 服务器…"))
++	failures := 0
++	for {
++		start := received
++		err = w.transfer(ctx, info, task.Stage.ProxyURL, partial, &received, task.FileSize, report)
++		if err == nil {
++			break
++		}
++		if ctx.Err() != nil {
++			return ctx.Err()
++		}
++		if received > start {
++			failures = 0
++		}
++		failures++
++		if failures > task.Stage.MaxRetries {
++			return err
++		}
++		delay := time.Duration(failures) * time.Second
++		select {
++		case <-ctx.Done():
++			return ctx.Err()
++		case <-time.After(delay):
++		}
++	}
++	if task.FileSize > 0 && received != task.FileSize {
++		return fmt.Errorf("FTP 文件大小不匹配：收到 %d，预期 %d", received, task.FileSize)
++	}
++	if err := os.Remove(output); err != nil && !errors.Is(err, os.ErrNotExist) {
++		return err
++	}
++	if err := os.Rename(partial, output); err != nil {
++		return fmt.Errorf("完成 FTP 文件：%w", err)
++	}
++	report(update(received, task.FileSize, 0, "FTP 下载完成"))
++	return nil
++}
++
++func (w Worker) transfer(ctx context.Context, info sourceInfo, proxyURL, partial string, received *int64, total int64, report func(core.ProgressUpdate)) error {
++	conn, err := dial(ctx, info, proxyURL)
++	if err != nil {
++		return err
++	}
++	defer conn.Quit()
++
++	var response *ftp.Response
++	if *received > 0 {
++		response, err = conn.RetrFrom(info.remotePath, uint64(*received))
++	} else {
++		response, err = conn.Retr(info.remotePath)
++	}
++	if err != nil && *received > 0 {
++		*received = 0
++		if truncateErr := os.Truncate(partial, 0); truncateErr != nil {
++			return truncateErr
++		}
++		response, err = conn.Retr(info.remotePath)
++	}
++	if err != nil {
++		return fmt.Errorf("打开 FTP 数据流：%w", err)
++	}
++	defer response.Close()
++	done := make(chan struct{})
++	go func() {
++		select {
++		case <-ctx.Done():
++			_ = response.Close()
++		case <-done:
++		}
++	}()
++	defer close(done)
++	file, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY, 0o666)
++	if err != nil {
++		return err
++	}
++	defer file.Close()
++	if _, err := file.Seek(*received, io.SeekStart); err != nil {
++		return err
++	}
++	buffer := make([]byte, 64*1024)
++	lastAt, lastBytes := time.Now(), *received
++	for {
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		n, readErr := response.Read(buffer)
++		if n > 0 {
++			if w.Limiter != nil {
++				if err := waitLimited(ctx, w.Limiter, n); err != nil {
++					return err
++				}
++			}
++			written, writeErr := file.Write(buffer[:n])
++			*received += int64(written)
++			if writeErr != nil {
++				return writeErr
++			}
++			if written != n {
++				return io.ErrShortWrite
++			}
++			now := time.Now()
++			if now.Sub(lastAt) >= time.Second {
++				speed := int64(float64(*received-lastBytes) / now.Sub(lastAt).Seconds())
++				report(update(*received, total, speed, "正在下载 FTP 文件…"))
++				lastAt, lastBytes = now, *received
++			}
++		}
++		if errors.Is(readErr, io.EOF) {
++			return nil
++		}
++		if readErr != nil {
++			return readErr
++		}
++	}
++}
++
++func waitLimited(ctx context.Context, limiter *ratelimit.Limiter, bytes int) error {
++	for bytes > 0 {
++		rate := limiter.Rate()
++		if rate <= 0 {
++			return nil
++		}
++		chunk := bytes
++		if int64(chunk) > rate {
++			chunk = int(rate)
++		}
++		if err := limiter.Wait(ctx, chunk); err != nil {
++			return err
++		}
++		bytes -= chunk
++	}
++	return nil
++}
++
++func parseSource(source string) (sourceInfo, string, error) {
++	u, err := url.Parse(strings.TrimSpace(source))
++	scheme := strings.ToLower(u.Scheme)
++	if err != nil || (scheme != "ftp" && scheme != "ftps" && scheme != "ftpes") || u.Hostname() == "" {
++		return sourceInfo{}, "", errors.New("FTP 地址格式无效")
++	}
++	tlsMode := ""
++	defaultPort := "21"
++	if scheme == "ftps" {
++		tlsMode, defaultPort = "implicit", "990"
++	} else if scheme == "ftpes" {
++		tlsMode = "explicit"
++	}
++	host := net.JoinHostPort(u.Hostname(), defaultPort)
++	if u.Port() != "" {
++		host = net.JoinHostPort(u.Hostname(), u.Port())
++	}
++	username, password := "anonymous", "anonymous@"
++	if u.User != nil {
++		if u.User.Username() != "" {
++			username = u.User.Username()
++		}
++		if value, ok := u.User.Password(); ok {
++			password = value
++		}
++	}
++	remotePath, err := url.PathUnescape(u.EscapedPath())
++	if err != nil || remotePath == "" || strings.HasSuffix(remotePath, "/") {
++		return sourceInfo{}, "", errors.New("FTP 地址必须指向文件")
++	}
++	clean := *u
++	clean.User = nil
++	return sourceInfo{host: host, remotePath: path.Clean(remotePath), username: username, password: password, tlsMode: tlsMode, timeout: 30 * time.Second}, clean.String(), nil
++}
++
++func sourceFromTask(task core.Task) (sourceInfo, error) {
++	s := task.Stage.State
++	if s == nil || s[stateHost] == "" || s[stateRemotePath] == "" {
++		return sourceInfo{}, errors.New("FTP 任务缺少连接信息")
++	}
++	timeout := 30 * time.Second
++	if seconds, err := strconv.Atoi(s[stateTimeout]); err == nil && seconds > 0 {
++		timeout = time.Duration(seconds) * time.Second
++	}
++	return sourceInfo{host: s[stateHost], remotePath: s[stateRemotePath], username: s[stateUsername], password: s[statePassword], tlsMode: s[stateTLSMode], timeout: timeout}, nil
++}
++
++func dial(ctx context.Context, info sourceInfo, proxyURL string) (*ftp.ServerConn, error) {
++	options := []ftp.DialOption{ftp.DialWithContext(ctx), ftp.DialWithTimeout(info.timeout)}
++	if strings.TrimSpace(proxyURL) != "" {
++		p, _ := url.Parse(proxyURL)
++		dialer, err := proxy.FromURL(p, proxy.Direct)
++		if err != nil {
++			return nil, fmt.Errorf("FTP 代理配置无效：%w", err)
++		}
++		options = append(options, ftp.DialWithDialFunc(dialer.Dial))
++	}
++	if info.tlsMode != "" {
++		host, _, _ := net.SplitHostPort(info.host)
++		tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
++		if info.tlsMode == "explicit" {
++			options = append(options, ftp.DialWithExplicitTLS(tlsConfig))
++		} else {
++			options = append(options, ftp.DialWithTLS(tlsConfig))
++		}
++	}
++	conn, err := ftp.Dial(info.host, options...)
++	if err != nil {
++		return nil, fmt.Errorf("连接 FTP 服务器：%w", err)
++	}
++	if err := conn.Login(info.username, info.password); err != nil {
++		_ = conn.Quit()
++		return nil, fmt.Errorf("FTP 登录失败：%w", err)
++	}
++	return conn, nil
++}
++
++func validateProxy(proxyURL string) error {
++	if strings.TrimSpace(proxyURL) == "" {
++		return nil
++	}
++	u, err := url.Parse(proxyURL)
++	if err != nil || (u.Scheme != "socks5" && u.Scheme != "socks5h") {
++		return errors.New("FTP 当前仅支持直连或 SOCKS5 代理")
++	}
++	return nil
++}
++
++func update(received, total, speed int64, detail string) core.ProgressUpdate {
++	progress := float64(0)
++	if total > 0 {
++		progress = float64(received) / float64(total) * 100
++		if progress > 100 {
++			progress = 100
++		}
++	}
++	return core.ProgressUpdate{Received: received, FileSize: total, Speed: speed, Progress: progress, Detail: detail}
++}
+diff --git a/internal/download/ftp/ftp_test.go b/internal/download/ftp/ftp_test.go
+new file mode 100644
+index 0000000..d0e4835
+--- /dev/null
++++ b/internal/download/ftp/ftp_test.go
+@@ -0,0 +1,216 @@
++package ftpdownload
++
++import (
++	"bufio"
++	"bytes"
++	"context"
++	"fmt"
++	"net"
++	"os"
++	"strconv"
++	"strings"
++	"sync"
++	"testing"
++
++	"ghost-downloader-go-win32/internal/core"
++)
++
++func TestIsSource(t *testing.T) {
++	for source, want := range map[string]bool{
++		"ftp://example.test/file.iso":   true,
++		"ftps://example.test/file.iso":  true,
++		"ftpes://example.test/file.iso": true,
++		"https://example.test/file":     false,
++		"ftpish://example.test/file":    false,
++	} {
++		if got := IsSource(source); got != want {
++			t.Fatalf("IsSource(%q)=%v want %v", source, got, want)
++		}
++	}
++}
++
++func TestParseSourceDefaultsAndRedactsCredentials(t *testing.T) {
++	info, clean, err := parseSource("ftp://user:p%40ss@example.test:2121/files/a%20b.iso")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if info.host != "example.test:2121" || info.remotePath != "/files/a b.iso" || info.username != "user" || info.password != "p@ss" {
++		t.Fatalf("unexpected source: %#v", info)
++	}
++	if clean != "ftp://example.test:2121/files/a%20b.iso" {
++		t.Fatalf("credentials were not redacted: %q", clean)
++	}
++}
++
++func TestParseSourceFTPSUsesImplicitTLS(t *testing.T) {
++	info, _, err := parseSource("ftps://example.test/secure.bin")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if info.host != "example.test:990" || info.tlsMode != "implicit" {
++		t.Fatalf("unexpected FTPS source: %#v", info)
++	}
++}
++
++func TestParseSourceFTPESUsesExplicitTLS(t *testing.T) {
++	info, _, err := parseSource("ftpes://example.test/secure.bin")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if info.host != "example.test:21" || info.tlsMode != "explicit" {
++		t.Fatalf("unexpected FTPES source: %#v", info)
++	}
++}
++
++func TestParseRejectsDirectory(t *testing.T) {
++	if _, _, err := parseSource("ftp://example.test/files/"); err == nil {
++		t.Fatal("directory source accepted")
++	}
++}
++
++func TestParseHonorsCanceledContext(t *testing.T) {
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if _, err := Parse(ctx, "ftp://example.test/file.bin", t.TempDir(), "", 0); err == nil {
++		t.Fatal("canceled parse succeeded")
++	}
++}
++
++func TestParseAndWorkerResumeFromLocalFTP(t *testing.T) {
++	content := bytes.Repeat([]byte("Ghost Downloader FTP\n"), 4096)
++	address, closeServer := startFTPServer(t, content)
++	defer closeServer()
++	dir := t.TempDir()
++	task, err := Parse(context.Background(), "ftp://user:pass@"+address+"/downloads/archive.bin", dir, "", 2)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if task.FileSize != int64(len(content)) || task.Title != "archive.bin" || strings.Contains(task.URL, "user") {
++		t.Fatalf("unexpected task: %#v", task)
++	}
++	partial := task.OutputFile() + ".part"
++	if err := os.WriteFile(partial, content[:8192], 0o600); err != nil {
++		t.Fatal(err)
++	}
++	var lastReceived int64
++	if err := (Worker{}).Run(context.Background(), task, func(update core.ProgressUpdate) { lastReceived = update.Received }); err != nil {
++		t.Fatal(err)
++	}
++	got, err := os.ReadFile(task.OutputFile())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !bytes.Equal(got, content) || lastReceived != int64(len(content)) {
++		t.Fatalf("FTP result mismatch: bytes=%d progress=%d", len(got), lastReceived)
++	}
++	if _, err := os.Stat(partial); !os.IsNotExist(err) {
++		t.Fatalf("partial file still exists: %v", err)
++	}
++}
++
++func startFTPServer(t *testing.T, content []byte) (string, func()) {
++	t.Helper()
++	listener, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	var wg sync.WaitGroup
++	stopped := make(chan struct{})
++	go func() {
++		defer close(stopped)
++		for {
++			conn, err := listener.Accept()
++			if err != nil {
++				return
++			}
++			wg.Add(1)
++			go func() {
++				defer wg.Done()
++				handleFTPConnection(conn, content)
++			}()
++		}
++	}()
++	return listener.Addr().String(), func() {
++		_ = listener.Close()
++		<-stopped
++		wg.Wait()
++	}
++}
++
++func handleFTPConnection(conn net.Conn, content []byte) {
++	defer conn.Close()
++	reader := bufio.NewReader(conn)
++	writer := bufio.NewWriter(conn)
++	reply := func(format string, args ...any) {
++		_, _ = fmt.Fprintf(writer, format+"\r\n", args...)
++		_ = writer.Flush()
++	}
++	reply("220 local fixture")
++	var passive net.Listener
++	var offset int
++	defer func() {
++		if passive != nil {
++			_ = passive.Close()
++		}
++	}()
++	for {
++		line, err := reader.ReadString('\n')
++		if err != nil {
++			return
++		}
++		fields := strings.SplitN(strings.TrimSpace(line), " ", 2)
++		command := strings.ToUpper(fields[0])
++		argument := ""
++		if len(fields) == 2 {
++			argument = fields[1]
++		}
++		switch command {
++		case "USER":
++			reply("331 password required")
++		case "PASS":
++			reply("230 logged in")
++		case "FEAT":
++			reply("211-Features")
++			reply(" SIZE")
++			reply(" REST STREAM")
++			reply(" EPSV")
++			reply("211 End")
++		case "SYST":
++			reply("215 UNIX Type: L8")
++		case "OPTS", "TYPE", "NOOP":
++			reply("200 OK")
++		case "SIZE":
++			reply("213 %d", len(content))
++		case "EPSV":
++			if passive != nil {
++				_ = passive.Close()
++			}
++			passive, _ = net.Listen("tcp", "127.0.0.1:0")
++			port := passive.Addr().(*net.TCPAddr).Port
++			reply("229 Entering Extended Passive Mode (|||%d|)", port)
++		case "REST":
++			offset, _ = strconv.Atoi(argument)
++			reply("350 restart accepted")
++		case "RETR":
++			reply("150 opening data connection")
++			dataConn, err := passive.Accept()
++			if err != nil {
++				return
++			}
++			if offset < 0 || offset > len(content) {
++				offset = 0
++			}
++			_, _ = dataConn.Write(content[offset:])
++			_ = dataConn.Close()
++			_ = passive.Close()
++			passive = nil
++			offset = 0
++			reply("226 transfer complete")
++		case "QUIT":
++			reply("221 goodbye")
++			return
++		default:
++			reply("502 unsupported")
++		}
++	}
++}
+diff --git a/internal/ui/app.go b/internal/ui/app.go
+index a0860bc..adec136 100644
+--- a/internal/ui/app.go
++++ b/internal/ui/app.go
+@@ -118,6 +118,54 @@ func Run(options Options) error {
+ 			})
+ 		}()
+ 	}
++	editSelectedBTFiles := func() {
++		taskID := selectedTaskID
++		if taskID == "" {
++			statusLabel.SetText("请先选择任务。")
++			return
++		}
++		task, ok := options.Scheduler.Task(taskID)
++		if !ok {
++			statusLabel.SetText("所选任务已失效。")
++			return
++		}
++		if task.PackID != "bt" {
++			statusLabel.SetText("只有 BitTorrent 任务可以调整文件选择。")
++			return
++		}
++		edited, accepted, err := runBTSelectionDialog(mainWindow, task, currentSettings.ThemeMode)
++		if err != nil {
++			statusLabel.SetText("打开种子文件选择窗口失败：" + err.Error())
++			return
++		}
++		if !accepted {
++			return
++		}
++		files, err := btdownload.FilesFromTask(edited)
++		if err != nil {
++			statusLabel.SetText("读取文件选择失败：" + err.Error())
++			return
++		}
++		indexes := make([]int, 0, len(files))
++		for _, file := range files {
++			if file.Selected {
++				indexes = append(indexes, file.Index)
++			}
++		}
++		statusLabel.SetText("正在应用 BitTorrent 文件选择…")
++		go func() {
++			err := options.Scheduler.EditTask(taskID, func(latest core.Task) (core.Task, error) {
++				return btdownload.SetSelectedFiles(latest, indexes)
++			})
++			app.Post(func() {
++				if err != nil {
++					statusLabel.SetText("调整 BitTorrent 文件失败：" + err.Error())
++					return
++				}
++				statusLabel.SetText("BitTorrent 文件选择已更新。")
++			})
++		}()
++	}
+ 	removeSelectedTask := func() {
+ 		if selectedTaskID == "" {
+ 			statusLabel.SetText("请先选择任务。")
+@@ -374,6 +422,10 @@ func Run(options Options) error {
+ 								Text:      "重新下载",
+ 								OnClicked: redownloadSelectedTask,
+ 							},
++							PushButton{
++								Text:      "BT 文件",
++								OnClicked: editSelectedBTFiles,
++							},
+ 							PushButton{
+ 								Text:      "移除任务",
+ 								OnClicked: removeSelectedTask,
+@@ -457,6 +509,7 @@ func Run(options Options) error {
+ 						ContextMenuItems: []MenuItem{
+ 							Action{Text: "暂停/继续", OnTriggered: toggleSelectedTask},
+ 							Action{Text: "重新下载", OnTriggered: redownloadSelectedTask},
++							Action{Text: "选择 BT 文件", OnTriggered: editSelectedBTFiles},
+ 							Separator{},
+ 							Action{Text: "打开目录", OnTriggered: openSelectedTaskFolder},
+ 							Action{Text: "打开文件", OnTriggered: openSelectedTaskFile},

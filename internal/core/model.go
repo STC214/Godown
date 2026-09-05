@@ -78,6 +78,11 @@ func (t Task) CleanupFiles() error {
 		}
 		return nil
 	}
+	if t.PackID == "ftp" {
+		if err := removeIfExists(outputFile + ".part"); err != nil {
+			return err
+		}
+	}
 	if err := removeIfExists(outputFile); err != nil {
 		return err
 	}

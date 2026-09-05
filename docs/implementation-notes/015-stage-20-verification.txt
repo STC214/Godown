@@ -1,0 +1,45 @@
+Stage 20 verification record
+Date: 2026-09-05
+
+BASELINE
+Command: git rev-parse HEAD
+Output: 16d234d11abe77e57e29d129bbd34d70fa8611e0
+Exit status: 0
+
+MODIFIED BEHAVIOR
+Command: go test -count=1 ./...
+Input: repository packages
+Output: all packages passed, including internal/download/ftp, internal/download/bt, internal/btruntime, internal/core, internal/app and internal/ui
+Exit status: 0
+
+Command: go test -race -count=1 ./internal/download/ftp ./internal/core ./internal/btruntime ./internal/download/bt
+Input: FTP resume/TLS-mode tests, Scheduler edit/restart tests, v2 Magnet routing/parser tests and BT integration tests
+Output:
+ok ghost-downloader-go-win32/internal/download/ftp
+ok ghost-downloader-go-win32/internal/core
+ok ghost-downloader-go-win32/internal/btruntime
+ok ghost-downloader-go-win32/internal/download/bt
+Exit status: 0
+
+Command: go vet ./...
+Input: repository packages
+Output: <no output>
+Exit status: 0
+
+Command: .\scripts\package-portable.ps1 -Version 0.1.13-stage20
+Output:
+BUILD=PASS
+VERSION=0.1.13-stage20
+PACKAGE=PASS
+PORTABLE_ZIP=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.13-stage20-windows-x64-portable.zip
+SHA256=e25886ac917e4b62e74645ac1c55c2d94f74353d7c483eb6193d9c5970ba8f63
+Exit status: 0
+
+ROLLBACK
+Command: .\scripts\rollback-stage20.ps1 -Root F:\Project\04_Desktop_Dev_Utilities\Downloader-rollback-check-stage20
+Input: detached baseline worktree with docs/implementation-notes/015-stage-20.patch applied
+Output:
+ROLLBACK=PASS
+RESTORED_VERSION=0.1.12-stage18
+ROLLBACK_TREE_MATCH=PASS
+Exit status: 0

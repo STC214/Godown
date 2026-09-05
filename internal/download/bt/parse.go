@@ -67,8 +67,8 @@ func IsSource(source string) bool {
 	if err == nil {
 		switch strings.ToLower(parsed.Scheme) {
 		case "magnet":
-			_, err := metainfo.ParseMagnetUri(text)
-			return err == nil
+			magnet, err := metainfo.ParseMagnetV2Uri(text)
+			return err == nil && (magnet.InfoHash.Ok || magnet.V2InfoHash.Ok)
 		case "http", "https":
 			return strings.EqualFold(filepath.Ext(parsed.Path), ".torrent")
 		case "file":
@@ -188,7 +188,7 @@ func loadSource(ctx context.Context, source string, options Options) ([]byte, st
 	parsed, _ := url.Parse(source)
 	switch strings.ToLower(parsed.Scheme) {
 	case "magnet":
-		magnet, err := metainfo.ParseMagnetUri(source)
+		magnet, err := metainfo.ParseMagnetV2Uri(source)
 		if err != nil {
 			return nil, "", "", nil, fmt.Errorf("invalid magnet URI: %w", err)
 		}

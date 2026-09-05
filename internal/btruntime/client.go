@@ -88,7 +88,9 @@ func IsSource(source string) bool {
 		switch strings.ToLower(parsed.Scheme) {
 		case "magnet":
 			for _, exactTopic := range parsed.Query()["xt"] {
-				if strings.HasPrefix(strings.ToLower(exactTopic), "urn:btih:") && len(exactTopic) > len("urn:btih:") {
+				lower := strings.ToLower(exactTopic)
+				if (strings.HasPrefix(lower, "urn:btih:") && len(exactTopic) > len("urn:btih:")) ||
+					(strings.HasPrefix(lower, "urn:btmh:") && len(exactTopic) > len("urn:btmh:")) {
 					return true
 				}
 			}
@@ -230,12 +232,14 @@ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error) 
 		return core.Task{}, errors.New("at least one BitTorrent file must be selected")
 	}
 	var total int64
+	var received int64
 	var count int
 	for index := range files {
 		_, files[index].Selected = selected[files[index].Index]
 		if files[index].Selected {
 			files[index].Priority = 4
 			total += files[index].Size
+			received += files[index].Downloaded
 			count++
 		} else {
 			files[index].Priority = 0
@@ -258,13 +262,18 @@ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error) 
 	task.Stage.State[stateFiles] = string(encoded)
 	task.FileSize = total
 	task.Stage.FileSize = total
-	if task.Received > total {
-		task.Received = total
-	}
-	if task.Stage.Received > total {
-		task.Stage.Received = total
-	}
+	task.Received = received
+	task.Stage.Received = received
+	task.Progress = selectionProgress(received, total)
+	task.Stage.Progress = task.Progress
 	return task, nil
+}
+
+func selectionProgress(received, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(received) / float64(total) * 100
 }
 
 func ParseTrackers(text string) []string {

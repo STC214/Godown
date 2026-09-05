@@ -2,14 +2,15 @@
 
 Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
 
-> 当前实现进度为 Stage 19：在 Stage 18 界面修复完成后，清理历史构建、测试夹具、运行时临时文件和旧发布包，并同步全部当前文档。程序验证版本仍为 `0.1.12-stage18`，功能代码未变。详见 [Stage 19 维护记录](docs/implementation-notes/014-stage-19-workspace-cleanup.md)。
+> 当前实现进度为 Stage 20：新增 FTP/FTPS 断点续传、BT v2-only Magnet，以及运行中重新选择 BT 文件并自动恢复任务。详见 [Stage 20 实现记录](docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md)。
 
 ## 已实现功能
 
 - HTTP(S) 分块下载、重试、限速、暂停与继续。
+- FTP、隐式 FTPS（`ftps://`）和显式 FTPS（`ftpes://`）单文件下载、重试、限速与断点续传。
 - M3U8 解析、外部运行时调用、下载与合并。
-- BitTorrent：本地/远程 `.torrent`、`file://` 和 v1 `btih` Magnet。
-- BT 多文件选择、Tracker 合并、校验块断点续传及完成后做种。
+- BitTorrent：本地/远程 `.torrent`、`file://`、v1 `btih`、v2 `btmh` 及混合 Magnet。
+- BT 多文件选择、运行中改选、Tracker 合并、校验块断点续传及完成后做种。
 - BT 分享率/做种时长限制、DHT、端口映射偏好和连接数设置。
 - 任务持久化、并发调度、托盘、通知及浏览器桥接。
 - HTTP(S)/SOCKS5 代理、自定义请求头与 Cookie。
@@ -47,7 +48,7 @@ go mod download
 
 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
 
-当前验证版本为 `0.1.12-stage18`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+当前验证版本为 `0.1.13-stage20`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
 
 ### 工作区清洁约定
 
@@ -58,7 +59,7 @@ go mod download
 
 ### 添加下载
 
-1. 在顶部输入框粘贴 HTTP(S)、M3U8 或 Magnet 地址，然后选择 **添加地址**。
+1. 在顶部输入框粘贴 HTTP(S)、FTP/FTPS、M3U8 或 Magnet 地址，然后选择 **添加地址**。
 2. 添加本地 torrent 时选择 **打开种子**。
 3. BT 任务会先打开文件选择窗口；至少选择一个文件后才能加入队列。
 4. 使用 **全部开始**、**全部暂停** 或任务右键菜单控制任务。
@@ -89,7 +90,7 @@ Stage 15 验证结果：项目语句覆盖率为 54.1%；`cmd/gd3win`、`cmd/gd3
 
 ## 当前边界
 
-- BT v2-only Magnet 尚未覆盖。
-- 任务开始后暂不支持动态修改 BT 文件优先级。
+- FTP 系列地址当前支持单文件下载，不递归下载远程目录；FTP 代理支持直连或 SOCKS5。
+- 修改运行中 BT 文件选择时，程序会短暂停止 BT runtime、保存最新检查点、应用选择后自动恢复，以避免运行时状态竞争。
 - BT 的 HTTP 元数据、HTTP/WebSocket Tracker 与 WebSeed 遵循代理设置；原生 Peer、DHT 和 UDP Tracker 使用 BT 引擎网络栈。
 - LSD、UPnP 与 NAT-PMP 受当前 BT 引擎公开接口约束，详见 [Stage 5 实现记录](docs/implementation-notes/005-stage-5-bittorrent.md)。

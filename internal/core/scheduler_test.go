@@ -51,11 +51,56 @@ type countingWorker struct {
 	done    chan string
 }
 
+type editableWorker struct {
+	started chan Task
+	done    chan string
+}
+
+func (w *editableWorker) Run(ctx context.Context, task Task, report func(ProgressUpdate)) error {
+	w.started <- task
+	<-ctx.Done()
+	w.done <- task.ID
+	return ctx.Err()
+}
+
 func (w *countingWorker) Run(ctx context.Context, task Task, report func(ProgressUpdate)) error {
 	w.started <- task.ID
 	<-ctx.Done()
 	w.done <- task.ID
 	return ctx.Err()
+}
+
+func TestSchedulerEditTaskRestartsActiveWorkerWithLatestState(t *testing.T) {
+	registry := NewRegistry()
+	worker := &editableWorker{started: make(chan Task, 2), done: make(chan string, 2)}
+	registry.Register("fake", worker)
+	scheduler := NewScheduler(registry, &memoryTaskStore{}, 1)
+	defer scheduler.StopAll()
+	task := NewTask("fake", "example.bin", "https://example.test/example.bin", t.TempDir(), 10, NewStage("fake", "https://example.test/example.bin", 10, 1, 0, true, nil, ""))
+	task.Stage.State = map[string]string{"selection": "old"}
+	scheduler.Add(task)
+	select {
+	case <-worker.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial worker did not start")
+	}
+	if err := scheduler.EditTask(task.ID, func(current Task) (Task, error) {
+		current.Stage.State["selection"] = "new"
+		current.FileSize = 20
+		current.Stage.FileSize = 20
+		return current, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var restarted Task
+	select {
+	case restarted = <-worker.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("edited worker did not restart")
+	}
+	if restarted.Stage.State["selection"] != "new" || restarted.FileSize != 20 {
+		t.Fatalf("worker received stale task: %#v", restarted)
+	}
 }
 
 type reportingWorker struct {
