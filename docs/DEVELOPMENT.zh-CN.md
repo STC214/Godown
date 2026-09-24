@@ -24,7 +24,7 @@ internal/core/              Task 模型、状态机与 Scheduler
 internal/config/            路径和 Settings
 internal/storage/           SQLite 配置与任务存储
 internal/download/http/     HTTP 探测、分块下载和恢复
-internal/download/ftp/      FTP/FTPS 探测、REST 恢复和单流下载
+internal/download/ftp/      FTP/FTPS 文件/目录探测、递归清单、REST 恢复和单流下载
 internal/download/m3u8/     M3U8 解析及外部下载器 Worker
 internal/download/ffmpeg/   媒体合并
 internal/download/bt/       torrent 解析、文件选择模型、Worker 与恢复存储
@@ -98,9 +98,9 @@ BT 进入 `seeding` 后设置 `UsesSlot=false`，因此做种任务不会阻塞�
 5. 为暂停、恢复、清理、重新下载和应用退出补齐测试。
 6. 如任务存在“不占下载槽”的阶段，通过 `UsesSlot` 上报，不要绕过 Scheduler。
 
-FTP Worker 使用独立 `.part` 文件恢复下载：`ftp://` 为普通 FTP，`ftps://` 为默认 990 端口的隐式 TLS，`ftpes://` 为默认 21 端口并通过 `AUTH TLS` 升级的显式 TLS。任务 URL 会移除凭据，连接信息保存在任务阶段状态；代理仅接受 SOCKS5。完成后 `.part` 原子改名为目标文件。
+FTP Worker 使用独立 `.part` 文件恢复下载：`ftp://` 为普通 FTP，`ftps://` 为默认 990 端口的隐式 TLS，`ftpes://` 为默认 21 端口并通过 `AUTH TLS` 升级的显式 TLS。任务 URL 会移除凭据，持久化层使用当前用户 DPAPI 保护 FTP 密码并迁移旧明文记录；代理仅接受 SOCKS5。未知大小单文件不会复用跨会话 `.part`，完成后 `.part` 原子改名为目标文件。目录任务在解析阶段使用 FTP Walker 建立持久清单，规范化 POSIX 远程路径并生成 Windows 安全相对路径；超出 int64 范围的清单大小会被拒绝，缺少大小的目录项以未知长度下载。Worker 顺序下载清单文件、聚合进度、恢复已知长度文件的 `.part`，并用任务专属完成标记及 SHA-256 校验已完成文件；重下时验证任务根目录所有权后递归清理输出和完成状态。旧版无标记输出会保留，加载时改用独立输出目录并暂停任务。
 
-`Scheduler.EditTask` 是运行中修改任务配置的统一边界。它先取消当前 Worker 并等待其最终检查点，再对最新任务副本应用编辑；此前处于活动状态的任务会重新加入调度，明确暂停的任务保持暂停。BT 文件改选通过该接口更新 `files` 状态，避免 GUI 直接修改运行时状态。
+`Scheduler.EditTask` 是运行中修改任务配置的统一边界。它先取消当前 Worker 并等待其最终检查点，再对最新任务副本串行应用编辑；回调不持有调度器状态锁或动作锁，可调用普通调度器操作；若回调期间目标任务发生变化，编辑返回冲突而不覆盖新状态。此前处于活动状态的任务会重新加入调度，明确暂停的任务保持暂停。BT 文件改选和优先级调整通过该接口更新 `files` 状态，避免 GUI 直接修改运行时状态。
 
 ## 7. BT 运行时边界
 
@@ -133,7 +133,9 @@ Stage 15 的自动化基线为：总语句覆盖率 54.1%；`cmd/gd3win` 51.6%�
 
 命令入口使用小范围可替换函数隔离 GUI 消息框和应用启动，以验证成功、重复启动、普通错误与 panic 退出码。BT runtime 的 `run`、`runWorker` 和 `encodeResult` 接受 `io.Reader` / `io.Writer`，测试不得替换进程级标准流或启动真实公网任务。`internal/app` 的来源路由测试使用 `httptest` 回环服务器。
 
-BT 本地集成测试使用动态生成的 bencode torrent 与 `httptest` Range WebSeed，不依赖公共 swarm：
+BT 本地集成测试使用动态生成的 bencode torrent 与 `httptest` Range WebSeed，不依赖公共 swarm。测试专用 torrent 客户端固定监听 `127.0.0.1` 并关闭 IPv6、DHT 和自动端口映射，避免自动测试触发 Windows 防火墙公网访问提示；正式程序仍按用户的 BT 设置联网：
+
+v2-only 测试使用真实 BEP 52 file tree、内容 SHA-256 pieces root 和本地 WebSeed 完成文件下载；FTP 测试同时覆盖隐式 FTPS 与通过 `AUTH TLS` 升级的显式 FTPES 控制/数据通道。
 
 ```powershell
 go test ./internal/download/bt `
@@ -154,8 +156,8 @@ Remove-Item Env:\GD3_BT_RUNTIME_TEST_PATH
 ### 便携包验收
 
 ```powershell
-.\scripts\package-portable.ps1 -Version 0.1.13-stage20
-Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.13-stage20-windows-x64-portable.zip
+.\scripts\package-portable.ps1 -Version 0.1.21-stage28
+Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.21-stage28-windows-x64-portable.zip
 ```
 
 发布目录只保留 ZIP 与同名 `.sha256`；展开目录由脚本清理。验收时还要逐项核对 ZIP 内 `release-manifest.json` 的大小和 SHA-256，并确认主程序、BT runtime、README、用户指南和便携更新脚本均在包内。

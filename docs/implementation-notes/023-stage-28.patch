@@ -1,0 +1,206 @@
+diff --git a/internal/core/model.go b/internal/core/model.go
+index 8a6046c..c7a054c 100644
+--- a/internal/core/model.go
++++ b/internal/core/model.go
+@@ -80,7 +80,10 @@ func (t Task) CleanupFiles() error {
+ 	}
+ 	if t.PackID == "ftp" {
+ 		if t.Stage.State["directory"] == "true" {
+-			return removeTaskOwnedPath(t.Path, outputFile)
++			if err := removeTaskOwnedPath(t.Path, outputFile); err != nil {
++				return err
++			}
++			return removeTaskOwnedPath(t.Path, filepath.Join(t.Path, ".gd3_ftp", t.ID))
+ 		}
+ 		if err := removeIfExists(outputFile + ".part"); err != nil {
+ 			return err
+diff --git a/internal/download/ftp/ftp.go b/internal/download/ftp/ftp.go
+index 1d6dd0a..65cc641 100644
+--- a/internal/download/ftp/ftp.go
++++ b/internal/download/ftp/ftp.go
+@@ -2,6 +2,7 @@ package ftpdownload
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
+ 	"crypto/tls"
+ 	"encoding/json"
+ 	"errors"
+@@ -87,13 +88,13 @@ func parse(ctx context.Context, source, downloadDir, proxyURL string, maxRetries
+ 		return newDirectoryTask(conn, info, cleanURL, downloadDir, proxyURL, maxRetries)
+ 	}
+ 	size, err := conn.FileSize(info.remotePath)
+-	if err != nil && !sizeCommandUnsupported(err) {
++	if err != nil {
+ 		if task, directoryErr := newDirectoryTask(conn, info, cleanURL, downloadDir, proxyURL, maxRetries); directoryErr == nil {
+ 			return task, nil
+ 		}
+-		return core.Task{}, fmt.Errorf("读取 FTP 文件大小：%w", err)
+-	}
+-	if err != nil {
++		if !sizeCommandUnsupported(err) {
++			return core.Task{}, fmt.Errorf("读取 FTP 文件大小：%w", err)
++		}
+ 		size = 0
+ 	}
+ 	title := safeFileName(filepath.Base(filepath.FromSlash(info.remotePath)))
+@@ -142,6 +143,7 @@ func listDirectory(conn *ftp.ServerConn, root string) ([]directoryEntry, int64,
+ 	entries := make([]directoryEntry, 0)
+ 	seen := make(map[string]bool)
+ 	var total int64
++	totalKnown := true
+ 	for walker.Next() {
+ 		entry := walker.Stat()
+ 		if entry == nil || entry.Type == ftp.EntryTypeLink {
+@@ -161,11 +163,21 @@ func listDirectory(conn *ftp.ServerConn, root string) ([]directoryEntry, int64,
+ 		}
+ 		item := directoryEntry{RemotePath: remotePath, RelativePath: local, Directory: entry.Type == ftp.EntryTypeFolder}
+ 		if !item.Directory {
+-			if entry.Size > uint64(1<<63-1)-uint64(total) {
++			item.Size = int64(entry.Size)
++			if entry.Size == 0 {
++				if probed, sizeErr := conn.FileSize(remotePath); sizeErr == nil {
++					item.Size = probed
++				} else {
++					item.Size = -1
++					totalKnown = false
++				}
++			}
++			if item.Size >= 0 && uint64(item.Size) > uint64(1<<63-1)-uint64(total) {
+ 				return nil, 0, errors.New("FTP 目录总大小超出支持范围")
+ 			}
+-			item.Size = int64(entry.Size)
+-			total += item.Size
++			if item.Size >= 0 {
++				total += item.Size
++			}
+ 		}
+ 		entries = append(entries, item)
+ 		if len(entries) > maxDirectoryEntries {
+@@ -175,6 +187,9 @@ func listDirectory(conn *ftp.ServerConn, root string) ([]directoryEntry, int64,
+ 	if err := walker.Err(); err != nil {
+ 		return nil, 0, err
+ 	}
++	if !totalKnown {
++		total = 0
++	}
+ 	sort.Slice(entries, func(i, j int) bool { return entries[i].RelativePath < entries[j].RelativePath })
+ 	return entries, total, nil
+ }
+@@ -315,7 +330,7 @@ func (w Worker) runDirectory(ctx context.Context, task core.Task, info sourceInf
+ 			return err
+ 		}
+ 		normalized, err := safeRelativePath(entry.RelativePath, entry.Directory, seen)
+-		if err != nil || normalized != entry.RelativePath || entry.Size < 0 {
++		if err != nil || normalized != entry.RelativePath || entry.Size < -1 {
+ 			return fmt.Errorf("FTP 目录清单项无效：%q", entry.RelativePath)
+ 		}
+ 		localPath, err := directoryOutputPath(root, entry.RelativePath)
+@@ -336,7 +351,11 @@ func (w Worker) runDirectory(ctx context.Context, task core.Task, info sourceInf
+ 		}
+ 		fileInfo := info
+ 		fileInfo.remotePath = entry.RemotePath
+-		fileReceived, err := w.downloadDirectoryFile(ctx, fileInfo, task.Stage.ProxyURL, localPath, entry.Size, task.Stage.MaxRetries, func(current, speed int64, detail string) {
++		completionPath, err := directoryOutputPath(filepath.Join(task.Path, ".gd3_ftp", task.ID), entry.RelativePath+".complete")
++		if err != nil {
++			return err
++		}
++		fileReceived, err := w.downloadDirectoryFile(ctx, fileInfo, task.Stage.ProxyURL, localPath, completionPath, entry.Size, task.Stage.MaxRetries, func(current, speed int64, detail string) {
+ 			report(update(received+current, task.FileSize, speed, detail+"："+entry.RelativePath))
+ 		})
+ 		if err != nil {
+@@ -350,10 +369,14 @@ func (w Worker) runDirectory(ctx context.Context, task core.Task, info sourceInf
+ 	return nil
+ }
+ 
+-func (w Worker) downloadDirectoryFile(ctx context.Context, info sourceInfo, proxyURL, output string, size int64, maxRetries int, report func(int64, int64, string)) (int64, error) {
+-	if stat, err := os.Stat(output); err == nil && !stat.IsDir() && stat.Size() == size {
+-		return size, nil
++func (w Worker) downloadDirectoryFile(ctx context.Context, info sourceInfo, proxyURL, output, completionPath string, size int64, maxRetries int, report func(int64, int64, string)) (int64, error) {
++	if completedFileMatches(output, completionPath, size) {
++		stat, err := os.Stat(output)
++		if err != nil {
++			return 0, err
++		}
++		return stat.Size(), nil
+-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
++	} else if _, err := os.Stat(output); err != nil && !errors.Is(err, os.ErrNotExist) {
+ 		return 0, err
+ 	}
+ 	partial := output + ".part"
+@@ -363,7 +386,7 @@ func (w Worker) downloadDirectoryFile(ctx context.Context, info sourceInfo, prox
+ 	} else if !errors.Is(err, os.ErrNotExist) {
+ 		return 0, err
+ 	}
+-	if received > size || (size == 0 && received > 0) {
++	if (size < 0 && received > 0) || (size >= 0 && received > size) {
+ 		if err := os.Truncate(partial, 0); err != nil {
+ 			return 0, err
+ 		}
+@@ -395,7 +418,7 @@ func (w Worker) downloadDirectoryFile(ctx context.Context, info sourceInfo, prox
+ 		case <-time.After(time.Duration(failures) * time.Second):
+ 		}
+ 	}
+-	if received != size {
++	if size >= 0 && received != size {
+ 		return received, fmt.Errorf("FTP 文件大小不匹配：%q 收到 %d，预期 %d", info.remotePath, received, size)
+ 	}
+ 	if err := os.Remove(output); err != nil && !errors.Is(err, os.ErrNotExist) {
+@@ -404,9 +427,57 @@ func (w Worker) downloadDirectoryFile(ctx context.Context, info sourceInfo, prox
+ 	if err := os.Rename(partial, output); err != nil {
+ 		return received, fmt.Errorf("完成 FTP 文件 %q：%w", info.remotePath, err)
+ 	}
++	if err := writeCompletionMarker(output, completionPath); err != nil {
++		return received, fmt.Errorf("记录 FTP 文件完成状态 %q：%w", info.remotePath, err)
++	}
+ 	return received, nil
+ }
+ 
++func completedFileMatches(output, completionPath string, size int64) bool {
++	stat, err := os.Stat(output)
++	if err != nil || stat.IsDir() || (size >= 0 && stat.Size() != size) {
++		return false
++	}
++	want, err := os.ReadFile(completionPath)
++	if err != nil {
++		return false
++	}
++	got, err := fileSHA256(output)
++	return err == nil && strings.TrimSpace(string(want)) == got
++}
++
++func writeCompletionMarker(output, completionPath string) error {
++	digest, err := fileSHA256(output)
++	if err != nil {
++		return err
++	}
++	if err := os.MkdirAll(filepath.Dir(completionPath), 0o755); err != nil {
++		return err
++	}
++	temporary := completionPath + ".tmp"
++	if err := os.WriteFile(temporary, []byte(digest+"\n"), 0o600); err != nil {
++		return err
++	}
++	defer os.Remove(temporary)
++	if err := os.Remove(completionPath); err != nil && !errors.Is(err, os.ErrNotExist) {
++		return err
++	}
++	return os.Rename(temporary, completionPath)
++}
++
++func fileSHA256(name string) (string, error) {
++	file, err := os.Open(name)
++	if err != nil {
++		return "", err
++	}
++	defer file.Close()
++	hash := sha256.New()
++	if _, err := io.Copy(hash, file); err != nil {
++		return "", err
++	}
++	return fmt.Sprintf("%x", hash.Sum(nil)), nil
++}
++
+ func directoryOutputPath(root, relative string) (string, error) {
+ 	if relative == "" || path.IsAbs(relative) || strings.Contains(relative, `\`) {
+ 		return "", fmt.Errorf("FTP 目录项本地路径无效：%q", relative)

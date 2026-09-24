@@ -1,0 +1,119 @@
+Stage 23 verification (Windows PowerShell)
+Workspace: F:\Project\04_Desktop_Dev_Utilities\Downloader
+Baseline: current uncommitted Stage 22 workspace, NOT git HEAD Stage 20.
+Original source snapshot: .codex-artifacts/stage23-original
+Modified source snapshot: .codex-artifacts/stage23-modified
+Original package SHA256: 12f19f12e98726856145884223a21faa16a497b087585e34a29a00db6248d33d
+New package SHA256: 7fe69cfda42434ddc7abc98b21a2ae2d74679632fb6ffb3c23f3626586d55602
+
+1. Baseline code with new regression tests (before production fixes)
+COMMAND: go test ./internal/core ./internal/download/ftp -run "TestFailedLoadNeverOverwritesStore|TestWorkerRejectsFailedFinalReply" -count=1
+INPUT: failing task store; loopback FTP servers, known/unknown SIZE, final reply 426.
+OUTPUT:
+--- FAIL: TestFailedLoadNeverOverwritesStore (0.00s)
+    scheduler_test.go:39: failed load overwrote existing store: saves=1
+FAIL
+FAIL ghost-downloader-go-win32/internal/core 0.713s
+--- FAIL: TestWorkerRejectsFailedFinalReply (0.01s)
+    --- FAIL: TestWorkerRejectsFailedFinalReply/knownSize=true (0.01s)
+        ftp_test.go:231: failed final FTP reply was reported as successful download
+    --- FAIL: TestWorkerRejectsFailedFinalReply/knownSize=false (0.00s)
+        ftp_test.go:231: failed final FTP reply was reported as successful download
+FAIL
+FAIL ghost-downloader-go-win32/internal/download/ftp 1.356s
+FAIL
+EXIT: 1
+
+2. After load/final-reply fixes
+COMMAND: go test ./internal/core ./internal/download/ftp ./internal/app -count=1
+OUTPUT:
+ok ghost-downloader-go-win32/internal/core 1.004s
+ok ghost-downloader-go-win32/internal/download/ftp 7.222s
+ok ghost-downloader-go-win32/internal/app 6.848s
+EXIT: 0
+
+3. Unknown-size completion before progress fix
+COMMAND: go test ./internal/download/ftp -run TestParseAndWorkerSupportServerWithoutSizeCommand -count=1
+INPUT: loopback FTP without SIZE, 2688-byte payload, stale oversized .part.
+OUTPUT:
+--- FAIL: TestParseAndWorkerSupportServerWithoutSizeCommand (0.01s)
+    ftp_test.go:206: unknown-size completion not finalized: {Received:2688 FileSize:0 Speed:0 Progress:0 Detail:FTP 下载完成 Status: StageState:map[] UsesSlot:<nil>}
+FAIL
+FAIL ghost-downloader-go-win32/internal/download/ftp 0.896s
+FAIL
+EXIT: 1
+
+4. After all fixes
+COMMAND: go test ./internal/download/ftp -count=1
+OUTPUT: ok ghost-downloader-go-win32/internal/download/ftp 0.856s
+EXIT: 0
+COMMAND: go test -race ./internal/core ./internal/download/ftp -count=1
+OUTPUT:
+ok ghost-downloader-go-win32/internal/core 2.149s
+ok ghost-downloader-go-win32/internal/download/ftp 2.986s
+EXIT: 0
+
+5. Full suite
+COMMAND: go test ./... -count=1
+OUTPUT (Go column whitespace normalized):
+ok ghost-downloader-go-win32/cmd/gd3-bt-runtime 0.262s
+ok ghost-downloader-go-win32/cmd/gd3win 0.192s
+ok ghost-downloader-go-win32/internal/app 0.216s
+ok ghost-downloader-go-win32/internal/browserbridge 0.264s
+ok ghost-downloader-go-win32/internal/btruntime 0.195s
+? ghost-downloader-go-win32/internal/buildinfo [no test files]
+ok ghost-downloader-go-win32/internal/config 0.130s
+ok ghost-downloader-go-win32/internal/core 0.360s
+ok ghost-downloader-go-win32/internal/download/bt 22.168s
+ok ghost-downloader-go-win32/internal/download/ffmpeg 0.409s
+ok ghost-downloader-go-win32/internal/download/ftp 0.398s
+ok ghost-downloader-go-win32/internal/download/http 0.288s
+ok ghost-downloader-go-win32/internal/download/m3u8 0.389s
+ok ghost-downloader-go-win32/internal/logging 0.106s
+ok ghost-downloader-go-win32/internal/pluginhost 2.487s
+ok ghost-downloader-go-win32/internal/ratelimit 0.183s
+ok ghost-downloader-go-win32/internal/storage 0.534s
+ok ghost-downloader-go-win32/internal/ui 0.331s
+ok ghost-downloader-go-win32/internal/update 0.334s
+ok ghost-downloader-go-win32/internal/win32 0.258s
+EXIT: 0
+COMMAND: go vet ./...
+OUTPUT: (empty)
+EXIT: 0
+
+6. Package
+COMMAND: .\scripts\package-portable.ps1 -Version "0.1.16-stage23"
+OUTPUT:
+BUILD=PASS
+VERSION=0.1.16-stage23
+GUI=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.16-stage23-windows-x64\gd3win.exe
+BT_RUNTIME=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.16-stage23-windows-x64\gd3-bt-runtime.exe
+PACKAGE=PASS
+VERSION=0.1.16-stage23
+PORTABLE_ZIP=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.16-stage23-windows-x64-portable.zip
+SHA256=7fe69cfda42434ddc7abc98b21a2ae2d74679632fb6ffb3c23f3626586d55602
+EXIT: 0
+CHECK: Expand-Archive into .codex-artifacts/stage23-package-check; compare every release-manifest.json file SHA256 using Get-FileHash.
+OUTPUT: MANIFEST=PASS
+EXIT: 0
+COMMAND: Start-Process extracted gd3win.exe -ArgumentList "--version" -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput .codex-artifacts/stage23-version.txt
+OUTPUT FILE: 0.1.16-stage23
+PROCESS EXIT: 0
+This is an executable/version smoke test, not manual UI interaction.
+
+7. Incremental patch and isolated rollback
+COMMAND: git apply --check --reverse -p3 "docs/implementation-notes/018-stage-23.patch"
+OUTPUT: (empty)
+EXIT: 0
+SETUP: Copy-Item -LiteralPath ".codex-artifacts/stage23-modified" -Destination ".codex-artifacts/stage23-rollback-check" -Recurse
+COMMAND: .\scripts\rollback-stage23.ps1 -TargetRoot ".codex-artifacts/stage23-rollback-check"
+OUTPUT: ROLLBACK=PASS (source and README; user data and portable packages untouched)
+EXIT: 0
+COMMAND: git diff --no-index --exit-code -- ".codex-artifacts/stage23-original" ".codex-artifacts/stage23-rollback-check"
+OUTPUT: (empty)
+EXIT: 0
+COMMAND: git diff --check
+OUTPUT: (empty)
+EXIT: 0
+
+The old Stage 22 ZIP hash was rechecked unchanged. No public BT swarm or manual UI verification was performed in this round.

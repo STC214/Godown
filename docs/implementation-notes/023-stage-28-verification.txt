@@ -1,0 +1,65 @@
+Stage 28 verification / Windows PowerShell / 2026-09-06
+Workspace: F:\Project\04_Desktop_Dev_Utilities\Downloader
+Baseline: .codex-artifacts/stage27-modified (Stage 27 preserved snapshot)
+
+BASELINE CONFIRMATION
+COMMAND: Select-String -SimpleMatch -Path ".codex-artifacts\stage27-modified\internal\download\ftp\ftp.go" -Pattern "stat.Size() == size","if received != size"
+INPUT: Stage 27 FTP implementation.
+OUTPUT:
+.codex-artifacts\stage27-modified\internal\download\ftp\ftp.go:354: if stat, err := os.Stat(output); err == nil && !stat.IsDir() && stat.Size() == size {
+.codex-artifacts\stage27-modified\internal\download\ftp\ftp.go:398: if received != size {
+EXIT: 0
+
+MODIFIED TARGETED
+COMMAND: go test ./internal/download/ftp ./internal/core -count=1
+INPUT: same-size wrong local file, verified completed file, unknown MLSD size, unavailable SIZE, no-trailing-slash directory, completion-state cleanup.
+OUTPUT:
+ok ghost-downloader-go-win32/internal/download/ftp 0.992s
+ok ghost-downloader-go-win32/internal/core 0.271s
+EXIT: 0
+
+COMMAND: go test -race ./internal/download/ftp ./internal/core -count=1
+OUTPUT:
+ok ghost-downloader-go-win32/internal/download/ftp 2.175s
+ok ghost-downloader-go-win32/internal/core 1.298s
+EXIT: 0
+
+FULL REGRESSION
+COMMAND: go test ./... -count=1
+OUTPUT: all packages passed; BT package 22.898s, FTP package 0.806s; exit 0.
+EXIT: 0
+
+COMMAND: go vet ./...
+OUTPUT: (empty)
+EXIT: 0
+
+COMMAND: git diff --check
+OUTPUT: (empty)
+EXIT: 0
+
+PATCH
+COMMAND: git apply --reverse --check -- "docs\implementation-notes\023-stage-28.patch"
+OUTPUT: (empty)
+EXIT: 0
+
+PORTABLE PACKAGE
+COMMAND: .\scripts\package-portable.ps1 -Version "0.1.21-stage28"
+OUTPUT:
+BUILD=PASS
+VERSION=0.1.21-stage28
+PACKAGE=PASS
+PORTABLE_ZIP=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.21-stage28-windows-x64-portable.zip
+SHA256=9ccc4e8225fd468a800cae90617d11f2ea2433f6443a9503cbd32b2d2be6173c
+EXIT: 0
+
+PACKAGE MANIFEST
+COMMAND: Expand-Archive -LiteralPath "release\GhostDownloader-0.1.21-stage28-windows-x64-portable.zip" -DestinationPath ".codex-artifacts\stage28-package-check-3"
+OUTPUT: (empty)
+EXIT: 0
+CHECK: release-manifest.json version is 0.1.21-stage28; all five listed files match literal SHA-256 values in the manifest.
+
+ROLLBACK
+SETUP: copy the four modified source/test files to .codex-artifacts/stage28-rollback-check-3.
+COMMAND: .\scripts\rollback-stage28.ps1 -TargetRoot ".codex-artifacts\stage28-rollback-check-3"
+OUTPUT: ROLLBACK=PASS (Stage 28 FTP behavior restored to Stage 27; user data and packages untouched)
+EXIT: 0

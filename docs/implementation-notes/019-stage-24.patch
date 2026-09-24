@@ -1,0 +1,210 @@
+diff --git a/.codex-artifacts/stage24-original/README.md b/.codex-artifacts/stage24-modified/README.md
+index be1c6f2..2f590d9 100644
+--- a/.codex-artifacts/stage24-original/README.md
++++ b/.codex-artifacts/stage24-modified/README.md
+@@ -2,7 +2,7 @@
+ 
+ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
+ 
+-> 当前实现进度为 Stage 23：修复任务读取失败后的覆盖风险、FTP 最终回复错误被忽略的问题，并补齐未知大小文件的完成进度。详见 [Stage 23 复审记录](docs/implementation-notes/018-stage-23-review.md)。Stage 22 的 FTPES、v2-only 和运行中 BT 文件选择功能继续保留。
++> 当前实现进度为 Stage 24：修复 FTP 等待最终回复时取消延迟的问题，覆盖 FTP、FTPS、FTPES 三种模式。取消直接中断底层连接，同时保留临时文件和完成状态校验。此前的任务记录保护、v2-only 和运行中 BT 文件选择功能继续保留。详见 [Stage 24 修复记录](docs/implementation-notes/019-stage-24-cancellation.md)。
+ 
+ ## 已实现功能
+ 
+diff --git a/.codex-artifacts/stage24-original/internal/download/ftp/ftp.go b/.codex-artifacts/stage24-modified/internal/download/ftp/ftp.go
+index 03630be..f7ba0d0 100644
+--- a/.codex-artifacts/stage24-original/internal/download/ftp/ftp.go
++++ b/.codex-artifacts/stage24-modified/internal/download/ftp/ftp.go
+@@ -348,19 +348,41 @@ func sourceFromTask(task core.Task) (sourceInfo, error) {
+ 	return sourceInfo{host: s[stateHost], remotePath: s[stateRemotePath], username: s[stateUsername], password: s[statePassword], tlsMode: s[stateTLSMode], timeout: timeout}, nil
+ }
+ 
++// Closing the underlying socket interrupts both data reads and final control
++// replies, without waiting for Response.Close's serialized protocol cleanup.
++type contextConn struct {
++	net.Conn
++	stop func() bool
++}
++
++func (c *contextConn) Close() error {
++	c.stop()
++	return c.Conn.Close()
++}
++
+ func dial(ctx context.Context, info sourceInfo, proxyURL string) (*ftp.ServerConn, error) {
+ 	options := []ftp.DialOption{ftp.DialWithContext(ctx), ftp.DialWithTimeout(info.timeout), ftp.DialWithShutTimeout(info.timeout)}
++	baseDialer := &net.Dialer{Timeout: info.timeout}
++	dialContext := baseDialer.DialContext
+ 	if strings.TrimSpace(proxyURL) != "" {
+-		p, _ := url.Parse(proxyURL)
+-		dialer, err := proxy.FromURL(p, proxy.Direct)
++		p, err := url.Parse(proxyURL)
+ 		if err != nil {
+ 			return nil, fmt.Errorf("FTP 代理配置无效：%w", err)
+ 		}
+-		options = append(options, ftp.DialWithDialFunc(dialer.Dial))
++		dialer, err := proxy.FromURL(p, baseDialer)
++		if err != nil {
++			return nil, fmt.Errorf("FTP 代理配置无效：%w", err)
++		}
++		contextDialer, ok := dialer.(proxy.ContextDialer)
++		if !ok {
++			return nil, errors.New("FTP 代理缺少可取消的连接接口")
++		}
++		dialContext = contextDialer.DialContext
+ 	}
++	var tlsConfig *tls.Config
+ 	if info.tlsMode != "" {
+ 		host, _, _ := net.SplitHostPort(info.host)
+-		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
++		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+ 		if info.tlsConfig != nil {
+ 			tlsConfig = info.tlsConfig.Clone()
+ 		}
+@@ -373,6 +395,22 @@ func dial(ctx context.Context, info sourceInfo, proxyURL string) (*ftp.ServerCon
+ 			options = append(options, ftp.DialWithTLS(tlsConfig))
+ 		}
+ 	}
++	control := true // The library dials control first, then passive data sockets.
++	options = append(options, ftp.DialWithDialFunc(func(network, address string) (net.Conn, error) {
++		raw, err := dialContext(ctx, network, address)
++		if err != nil {
++			return nil, err
++		}
++		conn := &contextConn{Conn: raw, stop: context.AfterFunc(ctx, func() { _ = raw.Close() })}
++		useTLS := tlsConfig != nil && (!control || info.tlsMode == "implicit")
++		control = false
++		if useTLS {
++			// Keep data TLS handshakes lazy: servers may wait for RETR first.
++			// Explicit control TLS is upgraded by the FTP library after AUTH.
++			return tls.Client(conn, tlsConfig), nil
++		}
++		return conn, nil
++	}))
+ 	conn, err := ftp.Dial(info.host, options...)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("连接 FTP 服务器：%w", err)
+diff --git a/.codex-artifacts/stage24-original/internal/download/ftp/ftp_test.go b/.codex-artifacts/stage24-modified/internal/download/ftp/ftp_test.go
+index be81054..52c893c 100644
+--- a/.codex-artifacts/stage24-original/internal/download/ftp/ftp_test.go
++++ b/.codex-artifacts/stage24-modified/internal/download/ftp/ftp_test.go
+@@ -11,6 +11,7 @@ import (
+ 	"crypto/x509"
+ 	"crypto/x509/pkix"
+ 	"encoding/pem"
++	"errors"
+ 	"fmt"
+ 	"math/big"
+ 	"net"
+@@ -244,6 +245,64 @@ func TestWorkerRejectsFailedFinalReply(t *testing.T) {
+ 	}
+ }
+ 
++func TestWorkerCancelWhileWaitingForFinalReply(t *testing.T) {
++	for _, scheme := range []string{"ftp", "ftps", "ftpes"} {
++		t.Run(scheme, func(t *testing.T) {
++			payload := []byte("complete data without final control reply")
++			serverTLS, clientTLS := testTLSConfigs(t)
++			var address string
++			var stop func()
++			switch scheme {
++			case "ftps":
++				address, stop = startFTPSServer(t, payload, serverTLS, 0)
++			case "ftpes":
++				address, stop = startFTPESServer(t, payload, serverTLS, 0)
++			default:
++				address, stop = startFTPServerWithReply(t, payload, true, 0)
++			}
++			defer stop()
++			task, err := parse(context.Background(), scheme+"://"+address+"/cancel.bin", t.TempDir(), "", 0, clientTLS)
++			if err != nil {
++				t.Fatal(err)
++			}
++			task.Stage.State[stateTimeout] = "3"
++			ctx, cancel := context.WithCancel(context.Background())
++			defer cancel()
++			done := make(chan error, 1)
++			go func() { done <- (Worker{tlsConfig: clientTLS}).Run(ctx, task, nil) }()
++			deadline := time.Now().Add(2 * time.Second)
++			for {
++				stat, err := os.Stat(task.OutputFile() + ".part")
++				if err == nil && stat.Size() == int64(len(payload)) {
++					break
++				}
++				if time.Now().After(deadline) {
++					cancel()
++					<-done
++					t.Fatal("data transfer did not finish")
++				}
++				time.Sleep(5 * time.Millisecond)
++			}
++			cancel()
++			select {
++			case err := <-done:
++				if !errors.Is(err, context.Canceled) {
++					t.Fatalf("cancellation result: %v", err)
++				}
++			case <-time.After(time.Second):
++				<-done
++				t.Fatal("cancellation waited for the FTP final-reply timeout")
++			}
++			if _, err := os.Stat(task.OutputFile()); !os.IsNotExist(err) {
++				t.Fatalf("canceled transfer published final file: %v", err)
++			}
++			if data, err := os.ReadFile(task.OutputFile() + ".part"); err != nil || !bytes.Equal(data, payload) {
++				t.Fatalf("partial payload was not preserved: %v", err)
++			}
++		})
++	}
++}
++
+ func startFTPServerWithReply(t *testing.T, content []byte, supportsSize bool, finalCode int) (string, func()) {
+ 	t.Helper()
+ 	listener, err := net.Listen("tcp", "127.0.0.1:0")
+@@ -273,7 +332,7 @@ func startFTPServerWithReply(t *testing.T, content []byte, supportsSize bool, fi
+ 	}
+ }
+ 
+-func startFTPSServer(t *testing.T, content []byte, config *tls.Config) (string, func()) {
++func startFTPSServer(t *testing.T, content []byte, config *tls.Config, finalCode ...int) (string, func()) {
+ 	t.Helper()
+ 	listener, err := tls.Listen("tcp", "127.0.0.1:0", config)
+ 	if err != nil {
+@@ -291,7 +350,7 @@ func startFTPSServer(t *testing.T, content []byte, config *tls.Config) (string,
+ 			wg.Add(1)
+ 			go func() {
+ 				defer wg.Done()
+-				handleFTPConnection(conn, content, config, nil, true)
++				handleFTPConnection(conn, content, config, nil, true, finalCode...)
+ 			}()
+ 		}
+ 	}()
+@@ -302,7 +361,7 @@ func startFTPSServer(t *testing.T, content []byte, config *tls.Config) (string,
+ 	}
+ }
+ 
+-func startFTPESServer(t *testing.T, content []byte, config *tls.Config) (string, func()) {
++func startFTPESServer(t *testing.T, content []byte, config *tls.Config, finalCode ...int) (string, func()) {
+ 	t.Helper()
+ 	listener, err := net.Listen("tcp", "127.0.0.1:0")
+ 	if err != nil {
+@@ -320,7 +379,7 @@ func startFTPESServer(t *testing.T, content []byte, config *tls.Config) (string,
+ 			wg.Add(1)
+ 			go func() {
+ 				defer wg.Done()
+-				handleFTPConnection(conn, content, nil, config, true)
++				handleFTPConnection(conn, content, nil, config, true, finalCode...)
+ 			}()
+ 		}
+ 	}()
+@@ -464,7 +523,9 @@ func handleFTPConnection(conn net.Conn, content []byte, dataTLS, explicitTLS *tl
+ 			if len(finalCode) > 0 {
+ 				code = finalCode[0]
+ 			}
+-			reply("%d transfer finished", code)
++			if code != 0 {
++				reply("%d transfer finished", code)
++			}
+ 		case "QUIT":
+ 			reply("221 goodbye")
+ 			return

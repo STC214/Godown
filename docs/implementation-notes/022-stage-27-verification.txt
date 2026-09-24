@@ -1,0 +1,110 @@
+Stage 27 verification / Windows PowerShell / 2026-09-06
+Workspace: F:\Project\04_Desktop_Dev_Utilities\Downloader
+Baseline: Stage 26 working files, not Git HEAD.
+Original snapshot: .codex-artifacts/stage27-original
+Modified snapshot: .codex-artifacts/stage27-modified
+
+BASELINE REGRESSIONS:
+COMMAND: go test ./internal/download/ftp -run TestParseSourceAcceptsDirectory -count=1
+OUTPUT:
+internal\download\ftp\ftp_test.go:80:11: info.directory undefined (type sourceInfo has no field or method directory)
+FAIL ghost-downloader-go-win32/internal/download/ftp [build failed]
+EXIT: 1
+COMMAND: go test ./internal/core -run TestTaskCleanupFilesRemovesOnlyFTPDirectoryTaskRoot -count=1
+OUTPUT:
+--- FAIL: TestTaskCleanupFilesRemovesOnlyFTPDirectoryTaskRoot (0.00s)
+    scheduler_test.go:862: remove ...\remote-tree: The directory is not empty.
+FAIL ghost-downloader-go-win32/internal/core 0.695s
+EXIT: 1
+
+MODIFIED TARGETED:
+COMMAND: go test ./internal/download/ftp -run TestParseSourceAcceptsDirectory -count=1
+OUTPUT: ok  ghost-downloader-go-win32/internal/download/ftp 0.715s
+EXIT: 0
+COMMAND: go test ./internal/download/ftp -run TestParseAndWorkerDownloadDirectoryRecursively -count=1 -timeout=20s
+INPUT: local FTP MLSD tree; no trailing slash URL; root file already complete; nested 12-byte .part; empty directory; invalid Windows filename.
+OUTPUT: ok  ghost-downloader-go-win32/internal/download/ftp 0.816s
+EXIT: 0
+COMMAND: go test ./internal/download/ftp -run "TestSafeRelativePathRejectsWindowsCollisions|TestParseAndWorkerDownloadDirectoryRecursively" -count=1
+OUTPUT: ok  ghost-downloader-go-win32/internal/download/ftp 0.708s
+EXIT: 0
+COMMAND: go test ./internal/core -run "TestTaskCleanupFilesRemovesOnlyFTPDirectoryTaskRoot|TestTaskCleanupFilesRemovesOnlyBitTorrentOwnedPaths" -count=1
+OUTPUT: ok  ghost-downloader-go-win32/internal/core 0.689s
+EXIT: 0
+COMMAND: go test ./internal/download/ftp ./internal/core -count=1
+OUTPUT:
+ok  ghost-downloader-go-win32/internal/download/ftp 0.288s
+ok  ghost-downloader-go-win32/internal/core 0.255s
+EXIT: 0
+
+RACE:
+COMMAND: go test -race ./internal/download/ftp ./internal/core -count=10 -timeout=120s
+OUTPUT:
+ok  ghost-downloader-go-win32/internal/download/ftp 4.805s
+ok  ghost-downloader-go-win32/internal/core 3.633s
+EXIT: 0
+
+FULL SUITE:
+COMMAND: go test ./... -count=1
+OUTPUT:
+ok  ghost-downloader-go-win32/cmd/gd3-bt-runtime 1.526s
+ok  ghost-downloader-go-win32/cmd/gd3win 2.967s
+ok  ghost-downloader-go-win32/internal/app 2.166s
+ok  ghost-downloader-go-win32/internal/browserbridge 0.162s
+ok  ghost-downloader-go-win32/internal/btruntime 0.125s
+?   ghost-downloader-go-win32/internal/buildinfo [no test files]
+ok  ghost-downloader-go-win32/internal/config 0.099s
+ok  ghost-downloader-go-win32/internal/core 0.286s
+ok  ghost-downloader-go-win32/internal/download/bt 23.387s
+ok  ghost-downloader-go-win32/internal/download/ffmpeg 2.018s
+ok  ghost-downloader-go-win32/internal/download/ftp 0.435s
+ok  ghost-downloader-go-win32/internal/download/http 2.102s
+ok  ghost-downloader-go-win32/internal/download/m3u8 2.167s
+ok  ghost-downloader-go-win32/internal/logging 0.206s
+ok  ghost-downloader-go-win32/internal/pluginhost 2.524s
+ok  ghost-downloader-go-win32/internal/ratelimit 0.146s
+ok  ghost-downloader-go-win32/internal/storage 2.293s
+ok  ghost-downloader-go-win32/internal/ui 2.126s
+ok  ghost-downloader-go-win32/internal/update 0.258s
+ok  ghost-downloader-go-win32/internal/win32 0.213s
+EXIT: 0
+COMMAND: go vet ./...
+OUTPUT: empty
+EXIT: 0
+
+PACKAGE:
+COMMAND: .\scripts\package-portable.ps1 -Version "0.1.20-stage27"
+OUTPUT:
+BUILD=PASS
+VERSION=0.1.20-stage27
+GUI=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.20-stage27-windows-x64\gd3win.exe
+BT_RUNTIME=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.20-stage27-windows-x64\gd3-bt-runtime.exe
+PACKAGE=PASS
+VERSION=0.1.20-stage27
+PORTABLE_ZIP=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.20-stage27-windows-x64-portable.zip
+SHA256=4af44c3c078c3471434dff56cfd64c15d372f53a73f629b0c1b6a5b6984ea236
+EXIT: 0
+CHECK: Expand-Archive to .codex-artifacts/stage27-package-check; verify each release-manifest.json file hash.
+OUTPUT: MANIFEST=PASS
+EXIT: 0
+COMMAND: Start-Process extracted gd3win.exe -ArgumentList "--version" -WindowStyle Hidden -Wait -PassThru
+OUTPUT FILE: 0.1.20-stage27
+PROCESS EXIT: 0
+Stage 26 ZIP rechecked unchanged: 57D9CEC4919AADBF02690C9D9175955E0140EA9478DAC122376B57C06DE8E497
+
+PATCH AND ISOLATED ROLLBACK:
+COMMAND: git apply --check --reverse -p3 "docs/implementation-notes/022-stage-27.patch"
+OUTPUT: empty
+EXIT: 0
+SETUP: copy .codex-artifacts/stage27-modified recursively to .codex-artifacts/stage27-rollback-check.
+COMMAND: .\scripts\rollback-stage27.ps1 -TargetRoot ".codex-artifacts/stage27-rollback-check"
+OUTPUT: ROLLBACK=PASS (FTP directory source, tests and docs; user data and packages untouched)
+EXIT: 0
+COMMAND: git diff --no-index --exit-code -- ".codex-artifacts/stage27-original" ".codex-artifacts/stage27-rollback-check"
+OUTPUT: empty
+EXIT: 0
+COMMAND: git diff --check
+OUTPUT: empty
+EXIT: 0
+
+Verified behavior: single-file FTP behavior remains passing; directory trees persist a safe manifest, preserve hierarchy/empty directories, resume .part files, skip complete files, aggregate progress, and clean only their task-owned root. FTP links are intentionally skipped. No external FTP server or manual UI interaction was used.

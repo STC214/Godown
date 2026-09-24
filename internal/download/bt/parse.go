@@ -405,7 +405,12 @@ func resolveMagnet(ctx context.Context, source string, options Options) ([]byte,
 		return nil, fmt.Errorf("create BitTorrent metadata client: %w", err)
 	}
 	defer client.Close()
-	torrentHandle, err := client.AddMagnet(source)
+	spec, err := torrent.TorrentSpecFromMagnetUri(source)
+	if err != nil {
+		return nil, fmt.Errorf("add magnet: %w", err)
+	}
+	prepareTorrentSpecForClient(spec)
+	torrentHandle, _, err := client.AddTorrentSpec(spec)
 	if err != nil {
 		return nil, fmt.Errorf("add magnet: %w", err)
 	}
@@ -427,4 +432,12 @@ func resolveMagnet(ctx context.Context, source string, options Options) ([]byte,
 		return nil, fmt.Errorf("torrent metadata exceeds %d bytes", maxMetainfoBytes)
 	}
 	return buffer.Bytes(), nil
+}
+
+func prepareTorrentSpecForClient(spec *torrent.TorrentSpec) {
+	if spec == nil || !spec.InfoHash.IsZero() || !spec.InfoHashV2.Ok {
+		return
+	}
+	spec.InfoHash = *spec.InfoHashV2.Value.ToShort()
+	spec.InfoHashV2.SetNone()
 }

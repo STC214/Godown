@@ -52,6 +52,8 @@ func Run(options Options) error {
 
 	app := NewApplicationDispatcher()
 	defer app.Clear()
+	schedulerActions := newSerialExecutor()
+	defer schedulerActions.CloseAndWait()
 	currentSettings := options.Settings.Normalized(options.Paths)
 	taskModel := newTaskTableModel()
 	taskModel.SetDarkMode(appwin32.DarkModeEnabled(currentSettings.ThemeMode))
@@ -92,13 +94,22 @@ func Run(options Options) error {
 		refreshTaskSelection(taskTable, taskModel, &selectedTaskID, taskDetail)
 	}
 	toggleSelectedTask := func() {
-		if selectedTaskID == "" {
+		taskID := selectedTaskID
+		if taskID == "" {
 			statusLabel.SetText("请先选择任务。")
 			return
 		}
-		if err := options.Scheduler.TogglePause(selectedTaskID); err != nil {
-			statusLabel.SetText("切换任务状态失败：" + err.Error())
-		}
+		statusLabel.SetText("正在切换任务状态…")
+		schedulerActions.Submit(func() {
+			err := options.Scheduler.TogglePause(taskID)
+			app.Post(func() {
+				if err != nil {
+					statusLabel.SetText("切换任务状态失败：" + err.Error())
+					return
+				}
+				statusLabel.SetText("任务状态已切换。")
+			})
+		})
 	}
 	redownloadSelectedTask := func() {
 		taskID := selectedTaskID
@@ -107,7 +118,7 @@ func Run(options Options) error {
 			return
 		}
 		statusLabel.SetText("正在重新下载任务…")
-		go func() {
+		schedulerActions.Submit(func() {
 			err := options.Scheduler.Redownload(taskID)
 			app.Post(func() {
 				if err != nil {
@@ -116,7 +127,7 @@ func Run(options Options) error {
 				}
 				statusLabel.SetText("任务已重新开始。")
 			})
-		}()
+		})
 	}
 	editSelectedBTFiles := func() {
 		taskID := selectedTaskID
@@ -146,16 +157,16 @@ func Run(options Options) error {
 			statusLabel.SetText("读取文件选择失败：" + err.Error())
 			return
 		}
-		indexes := make([]int, 0, len(files))
+		priorities := make(map[int]int, len(files))
 		for _, file := range files {
 			if file.Selected {
-				indexes = append(indexes, file.Index)
+				priorities[file.Index] = file.Priority
 			}
 		}
 		statusLabel.SetText("正在应用 BitTorrent 文件选择…")
-		go func() {
+		schedulerActions.Submit(func() {
 			err := options.Scheduler.EditTask(taskID, func(latest core.Task) (core.Task, error) {
-				return btdownload.SetSelectedFiles(latest, indexes)
+				return btdownload.SetFilePriorities(latest, priorities)
 			})
 			app.Post(func() {
 				if err != nil {
@@ -164,7 +175,7 @@ func Run(options Options) error {
 				}
 				statusLabel.SetText("BitTorrent 文件选择已更新。")
 			})
-		}()
+		})
 	}
 	removeSelectedTask := func() {
 		if selectedTaskID == "" {
@@ -397,15 +408,21 @@ func Run(options Options) error {
 							PushButton{
 								Text: "全部开始",
 								OnClicked: func() {
-									options.Scheduler.StartAll()
-									statusLabel.SetText("所有暂停任务已加入队列。")
+									statusLabel.SetText("正在启动全部任务…")
+									schedulerActions.Submit(func() {
+										options.Scheduler.StartAll()
+										app.Post(func() { statusLabel.SetText("所有暂停任务已加入队列。") })
+									})
 								},
 							},
 							PushButton{
 								Text: "全部暂停",
 								OnClicked: func() {
-									options.Scheduler.PauseAll()
-									statusLabel.SetText("所有活动任务已暂停。")
+									statusLabel.SetText("正在暂停全部任务…")
+									schedulerActions.Submit(func() {
+										options.Scheduler.PauseAll()
+										app.Post(func() { statusLabel.SetText("所有活动任务已暂停。") })
+									})
 								},
 							},
 							HSpacer{},
@@ -613,6 +630,7 @@ func Run(options Options) error {
 	// Stop producers before disposing the dispatcher/window. This also waits
 	// for BT resume checkpoints and lets the event pump exit deterministically.
 	app.Clear()
+	schedulerActions.CloseAndWait()
 	if options.BrowserBridge != nil {
 		if err := options.BrowserBridge.Stop(context.Background()); err != nil {
 			slog.Warn("stop browser bridge during UI shutdown failed", "error", err)

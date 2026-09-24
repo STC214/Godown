@@ -1,6 +1,7 @@
 package btruntime
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
@@ -48,5 +49,25 @@ func TestSetSelectedFilesClonesTaskState(t *testing.T) {
 	}
 	if task.Stage.State[stateFiles] == updated.Stage.State[stateFiles] || task.Stage.State["immutable"] != "yes" {
 		t.Fatal("selection mutated the source task state")
+	}
+}
+
+func TestSetFilePrioritiesPersistsLevelsAndClampsProgress(t *testing.T) {
+	task := core.Task{Stage: core.Stage{State: map[string]string{
+		stateFiles: `[{"index":0,"path":"one.bin","size":10,"selected":true,"priority":4,"downloadedBytes":20},{"index":2,"path":"two.bin","size":20,"selected":true,"priority":4}]`,
+	}}}
+	updated, err := SetFilePriorities(task, map[int]int{0: FilePriorityLow, 2: FilePriorityHigh})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := FilesFromTask(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files[0].Priority != FilePriorityLow || files[1].Priority != FilePriorityHigh || files[0].Downloaded != 10 || updated.Received != 10 || math.Abs(updated.Progress-100.0/3.0) > 0.000001 {
+		t.Fatalf("priority update mismatch: task=%#v files=%#v", updated, files)
+	}
+	if _, err := SetFilePriorities(task, map[int]int{0: 99}); err == nil {
+		t.Fatal("invalid priority accepted")
 	}
 }

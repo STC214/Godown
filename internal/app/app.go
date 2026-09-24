@@ -102,7 +102,7 @@ func Run() error {
 
 	scheduler := core.NewScheduler(registry, taskStore, settings.MaxConcurrent)
 	if err := scheduler.Load(); err != nil {
-		slog.Warn("load remembered tasks failed", "error", err)
+		return fmt.Errorf("读取任务记录失败，已保留原始数据：%w", err)
 	}
 	defer scheduler.StopAll()
 

@@ -1,0 +1,165 @@
+diff --git a/.codex-artifacts/stage25-original/README.md b/.codex-artifacts/stage25-modified/README.md
+index 2f590d9..9b9782b 100644
+--- a/.codex-artifacts/stage25-original/README.md
++++ b/.codex-artifacts/stage25-modified/README.md
+@@ -2,7 +2,7 @@
+ 
+ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
+ 
+-> 当前实现进度为 Stage 24：修复 FTP 等待最终回复时取消延迟的问题，覆盖 FTP、FTPS、FTPES 三种模式。取消直接中断底层连接，同时保留临时文件和完成状态校验。此前的任务记录保护、v2-only 和运行中 BT 文件选择功能继续保留。详见 [Stage 24 修复记录](docs/implementation-notes/019-stage-24-cancellation.md)。
++> 当前实现进度为 Stage 25：补齐 FTP/FTPS 连接空闲超时，将可能等待调度编辑锁的界面操作移至后台，并同步便携包版本文档。此前的任务记录保护、v2-only、运行中 BT 文件选择及快速取消功能继续保留。详见 [Stage 25 修复记录](docs/implementation-notes/020-stage-25-review-fixes.md)。
+ 
+ ## 已实现功能
+ 
+@@ -48,7 +48,7 @@ go mod download
+ 
+ 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
+ 
+-当前验证版本为 `0.1.15-stage22`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
++当前验证版本为 `0.1.18-stage25`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+ 
+ ### 工作区清洁约定
+ 
+diff --git a/.codex-artifacts/stage25-original/internal/download/ftp/ftp.go b/.codex-artifacts/stage25-modified/internal/download/ftp/ftp.go
+index f7ba0d0..91358d7 100644
+--- a/.codex-artifacts/stage25-original/internal/download/ftp/ftp.go
++++ b/.codex-artifacts/stage25-modified/internal/download/ftp/ftp.go
+@@ -352,7 +352,22 @@ func sourceFromTask(task core.Task) (sourceInfo, error) {
+ // replies, without waiting for Response.Close's serialized protocol cleanup.
+ type contextConn struct {
+ 	net.Conn
+-	stop func() bool
++	stop    func() bool
++	timeout time.Duration
++}
++
++func (c *contextConn) Read(buffer []byte) (int, error) {
++	if err := c.Conn.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
++		return 0, err
++	}
++	return c.Conn.Read(buffer)
++}
++
++func (c *contextConn) Write(buffer []byte) (int, error) {
++	if err := c.Conn.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
++		return 0, err
++	}
++	return c.Conn.Write(buffer)
+ }
+ 
+ func (c *contextConn) Close() error {
+@@ -401,7 +416,7 @@ func dial(ctx context.Context, info sourceInfo, proxyURL string) (*ftp.ServerCon
+ 		if err != nil {
+ 			return nil, err
+ 		}
+-		conn := &contextConn{Conn: raw, stop: context.AfterFunc(ctx, func() { _ = raw.Close() })}
++		conn := &contextConn{Conn: raw, stop: context.AfterFunc(ctx, func() { _ = raw.Close() }), timeout: info.timeout}
+ 		useTLS := tlsConfig != nil && (!control || info.tlsMode == "implicit")
+ 		control = false
+ 		if useTLS {
+diff --git a/.codex-artifacts/stage25-original/internal/download/ftp/ftp_test.go b/.codex-artifacts/stage25-modified/internal/download/ftp/ftp_test.go
+index 52c893c..77b6745 100644
+--- a/.codex-artifacts/stage25-original/internal/download/ftp/ftp_test.go
++++ b/.codex-artifacts/stage25-modified/internal/download/ftp/ftp_test.go
+@@ -110,6 +110,44 @@ func TestParseHonorsCanceledContext(t *testing.T) {
+ 	}
+ }
+ 
++func TestDialTimesOutStalledImplicitTLSHandshake(t *testing.T) {
++	listener, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer listener.Close()
++	accepted := make(chan net.Conn, 1)
++	go func() {
++		conn, err := listener.Accept()
++		if err == nil {
++			accepted <- conn
++		}
++	}()
++	info := sourceInfo{
++		host:       listener.Addr().String(),
++		username:   "anonymous",
++		password:   "anonymous@",
++		tlsMode:    "implicit",
++		timeout:    100 * time.Millisecond,
++		tlsConfig:  &tls.Config{MinVersion: tls.VersionTLS12},
++		remotePath: "/stalled.bin",
++	}
++	started := time.Now()
++	if conn, err := dial(context.Background(), info, ""); err == nil {
++		_ = conn.Quit()
++		t.Fatal("stalled TLS handshake succeeded")
++	}
++	if elapsed := time.Since(started); elapsed > time.Second {
++		t.Fatalf("stalled TLS handshake ignored connection timeout: %v", elapsed)
++	}
++	select {
++	case conn := <-accepted:
++		_ = conn.Close()
++	case <-time.After(time.Second):
++		t.Fatal("fixture did not accept connection")
++	}
++}
++
+ func TestParseAndWorkerResumeFromLocalFTP(t *testing.T) {
+ 	content := bytes.Repeat([]byte("Ghost Downloader FTP\n"), 4096)
+ 	address, closeServer := startFTPServer(t, content)
+diff --git a/.codex-artifacts/stage25-original/internal/ui/app.go b/.codex-artifacts/stage25-modified/internal/ui/app.go
+index 6a575b8..24d175d 100644
+--- a/.codex-artifacts/stage25-original/internal/ui/app.go
++++ b/.codex-artifacts/stage25-modified/internal/ui/app.go
+@@ -92,13 +92,22 @@ func Run(options Options) error {
+ 		refreshTaskSelection(taskTable, taskModel, &selectedTaskID, taskDetail)
+ 	}
+ 	toggleSelectedTask := func() {
+-		if selectedTaskID == "" {
++		taskID := selectedTaskID
++		if taskID == "" {
+ 			statusLabel.SetText("请先选择任务。")
+ 			return
+ 		}
+-		if err := options.Scheduler.TogglePause(selectedTaskID); err != nil {
+-			statusLabel.SetText("切换任务状态失败：" + err.Error())
+-		}
++		statusLabel.SetText("正在切换任务状态…")
++		go func() {
++			err := options.Scheduler.TogglePause(taskID)
++			app.Post(func() {
++				if err != nil {
++					statusLabel.SetText("切换任务状态失败：" + err.Error())
++					return
++				}
++				statusLabel.SetText("任务状态已切换。")
++			})
++		}()
+ 	}
+ 	redownloadSelectedTask := func() {
+ 		taskID := selectedTaskID
+@@ -397,15 +406,21 @@ func Run(options Options) error {
+ 							PushButton{
+ 								Text: "全部开始",
+ 								OnClicked: func() {
+-									options.Scheduler.StartAll()
+-									statusLabel.SetText("所有暂停任务已加入队列。")
++									statusLabel.SetText("正在启动全部任务…")
++									go func() {
++										options.Scheduler.StartAll()
++										app.Post(func() { statusLabel.SetText("所有暂停任务已加入队列。") })
++									}()
+ 								},
+ 							},
+ 							PushButton{
+ 								Text: "全部暂停",
+ 								OnClicked: func() {
+-									options.Scheduler.PauseAll()
+-									statusLabel.SetText("所有活动任务已暂停。")
++									statusLabel.SetText("正在暂停全部任务…")
++									go func() {
++										options.Scheduler.PauseAll()
++										app.Post(func() { statusLabel.SetText("所有活动任务已暂停。") })
++									}()
+ 								},
+ 							},
+ 							HSpacer{},

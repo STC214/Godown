@@ -1,0 +1,258 @@
+diff --git a/.codex-artifacts/stage23-original/README.md b/.codex-artifacts/stage23-modified/README.md
+index b70278b..be1c6f2 100644
+--- a/.codex-artifacts/stage23-original/README.md
++++ b/.codex-artifacts/stage23-modified/README.md
+@@ -2,7 +2,7 @@
+ 
+ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
+ 
+-> 当前实现进度为 Stage 22：封闭 FTP 凭据、未知大小续传、Windows 保留名、BT 并发编辑与 v2-only 运行路径风险，并完成显式 FTPES 和 v2-only 实际下载测试。详见 [Stage 22 实现记录](docs/implementation-notes/017-stage-22-risk-closure.md)。
++> 当前实现进度为 Stage 23：修复任务读取失败后的覆盖风险、FTP 最终回复错误被忽略的问题，并补齐未知大小文件的完成进度。详见 [Stage 23 复审记录](docs/implementation-notes/018-stage-23-review.md)。Stage 22 的 FTPES、v2-only 和运行中 BT 文件选择功能继续保留。
+ 
+ ## 已实现功能
+ 
+diff --git a/.codex-artifacts/stage23-original/internal/app/app.go b/.codex-artifacts/stage23-modified/internal/app/app.go
+index d2da6c0..d273a43 100644
+--- a/.codex-artifacts/stage23-original/internal/app/app.go
++++ b/.codex-artifacts/stage23-modified/internal/app/app.go
+@@ -102,7 +102,7 @@ func Run() error {
+ 
+ 	scheduler := core.NewScheduler(registry, taskStore, settings.MaxConcurrent)
+ 	if err := scheduler.Load(); err != nil {
+-		slog.Warn("load remembered tasks failed", "error", err)
++		return fmt.Errorf("读取任务记录失败，已保留原始数据：%w", err)
+ 	}
+ 	defer scheduler.StopAll()
+ 
+diff --git a/.codex-artifacts/stage23-original/internal/core/scheduler.go b/.codex-artifacts/stage23-modified/internal/core/scheduler.go
+index 4c9c27c..44607c6 100644
+--- a/.codex-artifacts/stage23-original/internal/core/scheduler.go
++++ b/.codex-artifacts/stage23-modified/internal/core/scheduler.go
+@@ -23,6 +23,7 @@ type Scheduler struct {
+ 	saveTimer    *time.Timer
+ 	stopping     bool
+ 	eventsClosed bool
++	loadFailed   bool
+ }
+ 
+ type runningTask struct {
+@@ -49,11 +50,12 @@ func (s *Scheduler) Load() error {
+ 		return nil
+ 	}
+ 	tasks, err := s.store.Load()
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	s.loadFailed = err != nil
+ 	if err != nil {
+ 		return err
+ 	}
+-	s.mu.Lock()
+-	defer s.mu.Unlock()
+ 	for i := range tasks {
+ 		task := cloneTask(tasks[i])
+ 		if task.Status == StatusRunning || task.Status == StatusSeeding {
+@@ -619,7 +621,7 @@ func (s *Scheduler) emitLocked() {
+ }
+ 
+ func (s *Scheduler) scheduleSaveLocked() {
+-	if s.store == nil || s.stopping {
++	if s.store == nil || s.stopping || s.loadFailed {
+ 		return
+ 	}
+ 	if s.saveTimer != nil {
+@@ -636,7 +638,7 @@ func (s *Scheduler) scheduleSaveLocked() {
+ }
+ 
+ func (s *Scheduler) saveLocked() {
+-	if s.store == nil {
++	if s.store == nil || s.loadFailed {
+ 		return
+ 	}
+ 	tasks := make([]Task, 0, len(s.tasks))
+diff --git a/.codex-artifacts/stage23-original/internal/core/scheduler_test.go b/.codex-artifacts/stage23-modified/internal/core/scheduler_test.go
+index 57e885f..59c41af 100644
+--- a/.codex-artifacts/stage23-original/internal/core/scheduler_test.go
++++ b/.codex-artifacts/stage23-modified/internal/core/scheduler_test.go
+@@ -15,6 +15,31 @@ type memoryTaskStore struct {
+ 	tasks []Task
+ }
+ 
++type failingLoadStore struct {
++	saves int
++}
++
++func (s *failingLoadStore) Load() ([]Task, error) {
++	return nil, errors.New("fixture: task credentials could not be decrypted")
++}
++
++func (s *failingLoadStore) Save([]Task) error {
++	s.saves++
++	return nil
++}
++
++func TestFailedLoadNeverOverwritesStore(t *testing.T) {
++	store := &failingLoadStore{}
++	scheduler := NewScheduler(NewRegistry(), store, 1)
++	if err := scheduler.Load(); err == nil {
++		t.Fatal("expected load error")
++	}
++	scheduler.StopAll()
++	if store.saves != 0 {
++		t.Fatalf("failed load overwrote existing store: saves=%d", store.saves)
++	}
++}
++
+ func (s *memoryTaskStore) Load() ([]Task, error) {
+ 	s.mu.Lock()
+ 	defer s.mu.Unlock()
+diff --git a/.codex-artifacts/stage23-original/internal/download/ftp/ftp.go b/.codex-artifacts/stage23-modified/internal/download/ftp/ftp.go
+index 4de5c65..03630be 100644
+--- a/.codex-artifacts/stage23-original/internal/download/ftp/ftp.go
++++ b/.codex-artifacts/stage23-modified/internal/download/ftp/ftp.go
+@@ -14,6 +14,7 @@ import (
+ 	"path/filepath"
+ 	"strconv"
+ 	"strings"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/jlaffaye/ftp"
+@@ -183,7 +184,9 @@ func (w Worker) Run(ctx context.Context, task core.Task, report func(core.Progre
+ 	if err := os.Rename(partial, output); err != nil {
+ 		return fmt.Errorf("完成 FTP 文件：%w", err)
+ 	}
+-	report(update(received, task.FileSize, 0, "FTP 下载完成"))
++	completed := update(received, received, 0, "FTP 下载完成")
++	completed.Progress = 100 // Empty files also finish at 100%.
++	report(completed)
+ 	return nil
+ }
+ 
+@@ -210,12 +213,18 @@ func (w Worker) transfer(ctx context.Context, info sourceInfo, proxyURL, partial
+ 	if err != nil {
+ 		return fmt.Errorf("打开 FTP 数据流：%w", err)
+ 	}
+-	defer response.Close()
++	var closeOnce sync.Once
++	var closeErr error
++	closeResponse := func() error {
++		closeOnce.Do(func() { closeErr = response.Close() })
++		return closeErr
++	}
++	defer closeResponse()
+ 	done := make(chan struct{})
+ 	go func() {
+ 		select {
+ 		case <-ctx.Done():
+-			_ = response.Close()
++			_ = closeResponse()
+ 		case <-done:
+ 		}
+ 	}()
+@@ -257,7 +266,13 @@ func (w Worker) transfer(ctx context.Context, info sourceInfo, proxyURL, partial
+ 			}
+ 		}
+ 		if errors.Is(readErr, io.EOF) {
+-			return nil
++			if err := closeResponse(); err != nil {
++				return fmt.Errorf("FTP 服务器未确认传输完成：%w", err)
++			}
++			if err := ctx.Err(); err != nil {
++				return err
++			}
++			return file.Close()
+ 		}
+ 		if readErr != nil {
+ 			return readErr
+@@ -334,7 +349,7 @@ func sourceFromTask(task core.Task) (sourceInfo, error) {
+ }
+ 
+ func dial(ctx context.Context, info sourceInfo, proxyURL string) (*ftp.ServerConn, error) {
+-	options := []ftp.DialOption{ftp.DialWithContext(ctx), ftp.DialWithTimeout(info.timeout)}
++	options := []ftp.DialOption{ftp.DialWithContext(ctx), ftp.DialWithTimeout(info.timeout), ftp.DialWithShutTimeout(info.timeout)}
+ 	if strings.TrimSpace(proxyURL) != "" {
+ 		p, _ := url.Parse(proxyURL)
+ 		dialer, err := proxy.FromURL(p, proxy.Direct)
+diff --git a/.codex-artifacts/stage23-original/internal/download/ftp/ftp_test.go b/.codex-artifacts/stage23-modified/internal/download/ftp/ftp_test.go
+index aa7fa35..be81054 100644
+--- a/.codex-artifacts/stage23-original/internal/download/ftp/ftp_test.go
++++ b/.codex-artifacts/stage23-modified/internal/download/ftp/ftp_test.go
+@@ -198,9 +198,13 @@ func TestParseAndWorkerSupportServerWithoutSizeCommand(t *testing.T) {
+ 	if err := os.WriteFile(task.OutputFile()+".part", append(append([]byte{}, content...), []byte("stale tail")...), 0o600); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if err := (Worker{}).Run(context.Background(), task, nil); err != nil {
++	var final core.ProgressUpdate
++	if err := (Worker{}).Run(context.Background(), task, func(update core.ProgressUpdate) { final = update }); err != nil {
+ 		t.Fatal(err)
+ 	}
++	if final.FileSize != int64(len(content)) || final.Received != int64(len(content)) || final.Progress != 100 {
++		t.Fatalf("unknown-size completion not finalized: %+v", final)
++	}
+ 	got, err := os.ReadFile(task.OutputFile())
+ 	if err != nil {
+ 		t.Fatal(err)
+@@ -215,6 +219,32 @@ func startFTPServer(t *testing.T, content []byte) (string, func()) {
+ }
+ 
+ func startFTPServerWithSize(t *testing.T, content []byte, supportsSize bool) (string, func()) {
++	return startFTPServerWithReply(t, content, supportsSize, 226)
++}
++
++func TestWorkerRejectsFailedFinalReply(t *testing.T) {
++	for _, knownSize := range []bool{true, false} {
++		t.Run(fmt.Sprintf("knownSize=%v", knownSize), func(t *testing.T) {
++			address, stop := startFTPServerWithReply(t, []byte("partial payload"), knownSize, 426)
++			defer stop()
++			task, err := Parse(context.Background(), "ftp://"+address+"/failed.bin", t.TempDir(), "", 0)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := (Worker{}).Run(context.Background(), task, nil); err == nil {
++				t.Fatal("failed final FTP reply was reported as successful download")
++			}
++			if _, err := os.Stat(task.OutputFile()); !os.IsNotExist(err) {
++				t.Fatalf("failed transfer published final file: %v", err)
++			}
++			if _, err := os.Stat(task.OutputFile() + ".part"); err != nil {
++				t.Fatalf("partial file not retained: %v", err)
++			}
++		})
++	}
++}
++
++func startFTPServerWithReply(t *testing.T, content []byte, supportsSize bool, finalCode int) (string, func()) {
+ 	t.Helper()
+ 	listener, err := net.Listen("tcp", "127.0.0.1:0")
+ 	if err != nil {
+@@ -232,7 +262,7 @@ func startFTPServerWithSize(t *testing.T, content []byte, supportsSize bool) (st
+ 			wg.Add(1)
+ 			go func() {
+ 				defer wg.Done()
+-				handleFTPConnection(conn, content, nil, nil, supportsSize)
++				handleFTPConnection(conn, content, nil, nil, supportsSize, finalCode)
+ 			}()
+ 		}
+ 	}()
+@@ -340,7 +370,7 @@ func testTLSConfigs(t *testing.T) (*tls.Config, *tls.Config) {
+ 	return &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12}, &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+ }
+ 
+-func handleFTPConnection(conn net.Conn, content []byte, dataTLS, explicitTLS *tls.Config, supportsSize bool) {
++func handleFTPConnection(conn net.Conn, content []byte, dataTLS, explicitTLS *tls.Config, supportsSize bool, finalCode ...int) {
+ 	defer conn.Close()
+ 	reader := bufio.NewReader(conn)
+ 	writer := bufio.NewWriter(conn)
+@@ -430,7 +460,11 @@ func handleFTPConnection(conn net.Conn, content []byte, dataTLS, explicitTLS *tl
+ 			_ = passive.Close()
+ 			passive = nil
+ 			offset = 0
+-			reply("226 transfer complete")
++			code := 226
++			if len(finalCode) > 0 {
++				code = finalCode[0]
++			}
++			reply("%d transfer finished", code)
+ 		case "QUIT":
+ 			reply("221 goodbye")
+ 			return

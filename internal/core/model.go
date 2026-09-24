@@ -14,6 +14,9 @@ import (
 
 type TaskStatus string
 
+const FTPDirectoryOwnerMarker = ".gd3_ftp_owner"
+const ftpDirectoryOutputNameKey = "directoryOutputName"
+
 const (
 	StatusWaiting   TaskStatus = "waiting"
 	StatusRunning   TaskStatus = "running"
@@ -58,7 +61,55 @@ func NewTask(packID, title, rawURL, path string, fileSize int64, stage Stage) Ta
 }
 
 func (t Task) OutputFile() string {
+	if t.PackID == "ftp" && t.Stage.State["directory"] == "true" {
+		if name := t.Stage.State[ftpDirectoryOutputNameKey]; name != "" {
+			return filepath.Join(t.Path, name)
+		}
+	}
 	return filepath.Join(t.Path, t.Title)
+}
+
+// PrepareFTPDirectoryOutput leaves a pre-existing unowned directory untouched.
+// Legacy directory tasks resume into a durable, task-specific output instead.
+func (t Task) PrepareFTPDirectoryOutput() (Task, error) {
+	if t.PackID != "ftp" || t.Stage.State["directory"] != "true" {
+		return t, nil
+	}
+	output, err := taskOwnedPath(t.Path, t.OutputFile())
+	if err != nil {
+		return Task{}, err
+	}
+	if _, err := os.Lstat(output); os.IsNotExist(err) {
+		return t, nil
+	} else if err != nil {
+		return Task{}, err
+	}
+	if err := verifyFTPDirectoryOwner(output, t.ID); err == nil {
+		return t, nil
+	}
+	if t.Stage.State[ftpDirectoryOutputNameKey] != "" {
+		return Task{}, fmt.Errorf("FTP task output %q is not owned by task %s", output, t.ID)
+	}
+	name := "ftp-" + t.ID
+	alternate, err := taskOwnedPath(t.Path, filepath.Join(t.Path, name))
+	if err != nil {
+		return Task{}, err
+	}
+	if _, err := os.Lstat(alternate); err == nil {
+		if err := verifyFTPDirectoryOwner(alternate, t.ID); err != nil {
+			return Task{}, fmt.Errorf("FTP task output %q is already occupied: %w", alternate, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return Task{}, err
+	}
+	t.Stage.State = cloneStringMap(t.Stage.State)
+	t.Stage.State[ftpDirectoryOutputNameKey] = name
+	t.Status, t.Stage.Status = StatusPaused, StatusPaused
+	t.Received, t.Stage.Received = 0, 0
+	t.Progress, t.Stage.Progress = 0, 0
+	t.Speed, t.Stage.Speed = 0, 0
+	t.Error, t.Stage.Error = "", ""
+	return t, nil
 }
 
 func (t Task) CleanupFiles() error {
@@ -79,6 +130,19 @@ func (t Task) CleanupFiles() error {
 		return nil
 	}
 	if t.PackID == "ftp" {
+		if t.Stage.State["directory"] == "true" {
+			ownedRoot, err := taskOwnedPath(t.Path, outputFile)
+			if err != nil {
+				return err
+			}
+			if err := verifyFTPDirectoryOwner(ownedRoot, t.ID); err != nil {
+				return err
+			}
+			if err := removeTaskOwnedPath(t.Path, ownedRoot); err != nil {
+				return err
+			}
+			return removeTaskOwnedPath(t.Path, filepath.Join(t.Path, ".gd3_ftp", t.ID))
+		}
 		if err := removeIfExists(outputFile + ".part"); err != nil {
 			return err
 		}
@@ -90,22 +154,59 @@ func (t Task) CleanupFiles() error {
 }
 
 func removeTaskOwnedPath(base, target string) error {
-	base, err := filepath.Abs(filepath.Clean(base))
+	target, err := taskOwnedPath(base, target)
 	if err != nil {
 		return err
+	}
+	return os.RemoveAll(target)
+}
+
+func taskOwnedPath(base, target string) (string, error) {
+	base, err := filepath.Abs(filepath.Clean(base))
+	if err != nil {
+		return "", err
 	}
 	target, err = filepath.Abs(filepath.Clean(target))
 	if err != nil {
-		return err
+		return "", err
 	}
 	relative, err := filepath.Rel(base, target)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
-		return fmt.Errorf("cleanup target %q escapes task directory %q", target, base)
+		return "", fmt.Errorf("cleanup target %q escapes task directory %q", target, base)
 	}
-	return os.RemoveAll(target)
+	return target, nil
+}
+
+func verifyFTPDirectoryOwner(root, taskID string) error {
+	info, err := os.Lstat(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("FTP directory %q is not a task-owned directory", root)
+	}
+	marker := filepath.Join(root, FTPDirectoryOwnerMarker)
+	info, err = os.Lstat(marker)
+	if err != nil {
+		return fmt.Errorf("FTP directory %q has no ownership marker: %w", root, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("FTP directory %q has an invalid ownership marker", root)
+	}
+	owner, err := os.ReadFile(marker)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(owner)) != taskID {
+		return fmt.Errorf("FTP directory %q belongs to another task", root)
+	}
+	return nil
 }
 
 func removeIfExists(path string) error {

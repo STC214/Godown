@@ -1,0 +1,102 @@
+Stage 25 verification / Windows PowerShell / 2026-09-06
+Workspace: F:\Project\04_Desktop_Dev_Utilities\Downloader
+Baseline: Stage 24 working files, not Git HEAD.
+Original snapshot: .codex-artifacts/stage25-original
+Modified snapshot: .codex-artifacts/stage25-modified
+
+BASELINE REGRESSION:
+COMMAND: go test ./internal/download/ftp -run TestDialTimesOutStalledImplicitTLSHandshake -count=1 -timeout=3s
+INPUT: loopback TCP listener accepts an implicit FTPS control connection and suppresses the TLS handshake; source timeout=100ms; operation context=context.Background().
+OUTPUT: panic: test timed out after 3s
+RUNNING: TestDialTimesOutStalledImplicitTLSHandshake (3s)
+STACK LOCATION: internal/download/ftp/ftp.go:414, github.com/jlaffaye/ftp.Dial, crypto/tls.(*Conn).Read
+FAIL ghost-downloader-go-win32/internal/download/ftp 3.912s
+EXIT: 1
+
+MODIFIED TARGETED:
+COMMAND: go test ./internal/download/ftp -run "TestDialTimesOutStalledImplicitTLSHandshake|TestWorkerCancelWhileWaitingForFinalReply" -count=1 -timeout=15s
+OUTPUT: ok  ghost-downloader-go-win32/internal/download/ftp 1.114s
+EXIT: 0
+COMMAND: go test ./internal/ui ./internal/core -count=1
+OUTPUT:
+ok  ghost-downloader-go-win32/internal/ui 1.462s
+ok  ghost-downloader-go-win32/internal/core 0.606s
+EXIT: 0
+COMMAND: go test ./internal/download/ftp ./internal/ui ./internal/core -count=1
+OUTPUT:
+ok  ghost-downloader-go-win32/internal/download/ftp 0.300s
+ok  ghost-downloader-go-win32/internal/ui 0.144s
+ok  ghost-downloader-go-win32/internal/core 0.297s
+EXIT: 0
+
+RACE:
+COMMAND: go test -race ./internal/download/ftp ./internal/core -count=10 -timeout=120s
+OUTPUT:
+ok  ghost-downloader-go-win32/internal/download/ftp 5.017s
+ok  ghost-downloader-go-win32/internal/core 3.698s
+EXIT: 0
+
+FULL SUITE:
+COMMAND: go test ./... -count=1
+OUTPUT:
+ok  ghost-downloader-go-win32/cmd/gd3-bt-runtime 2.614s
+ok  ghost-downloader-go-win32/cmd/gd3win 3.447s
+ok  ghost-downloader-go-win32/internal/app 13.632s
+ok  ghost-downloader-go-win32/internal/browserbridge 13.672s
+ok  ghost-downloader-go-win32/internal/btruntime 0.168s
+?   ghost-downloader-go-win32/internal/buildinfo [no test files]
+ok  ghost-downloader-go-win32/internal/config 2.545s
+ok  ghost-downloader-go-win32/internal/core 3.569s
+ok  ghost-downloader-go-win32/internal/download/bt 27.148s
+ok  ghost-downloader-go-win32/internal/download/ffmpeg 17.260s
+ok  ghost-downloader-go-win32/internal/download/ftp 13.783s
+ok  ghost-downloader-go-win32/internal/download/http 12.782s
+ok  ghost-downloader-go-win32/internal/download/m3u8 17.864s
+ok  ghost-downloader-go-win32/internal/logging 5.916s
+ok  ghost-downloader-go-win32/internal/pluginhost 14.319s
+ok  ghost-downloader-go-win32/internal/ratelimit 0.132s
+ok  ghost-downloader-go-win32/internal/storage 14.628s
+ok  ghost-downloader-go-win32/internal/ui 16.179s
+ok  ghost-downloader-go-win32/internal/update 0.152s
+ok  ghost-downloader-go-win32/internal/win32 15.988s
+EXIT: 0
+COMMAND: go vet ./...
+OUTPUT: empty
+EXIT: 0
+
+PACKAGE:
+COMMAND: .\scripts\package-portable.ps1 -Version "0.1.18-stage25"
+OUTPUT:
+BUILD=PASS
+VERSION=0.1.18-stage25
+GUI=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.18-stage25-windows-x64\gd3win.exe
+BT_RUNTIME=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.18-stage25-windows-x64\gd3-bt-runtime.exe
+PACKAGE=PASS
+VERSION=0.1.18-stage25
+PORTABLE_ZIP=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.18-stage25-windows-x64-portable.zip
+SHA256=a56f20af9ac4263f12afbb4651d30eb7dda4e9d5f30748f5e40b4279423bacf4
+EXIT: 0
+CHECK: Expand-Archive to .codex-artifacts/stage25-package-check and verify each release-manifest.json file hash.
+OUTPUT: MANIFEST=PASS
+EXIT: 0
+COMMAND: Start-Process extracted gd3win.exe -ArgumentList "--version" -WindowStyle Hidden -Wait -PassThru
+OUTPUT FILE: 0.1.18-stage25
+PROCESS EXIT: 0
+Stage 24 ZIP rechecked unchanged: C1203A3C9B83D41BE8FDE49AC91ED2A57DCE75A31476074FAF2342266A955A0C
+
+PATCH AND ROLLBACK:
+COMMAND: git apply --check --reverse -p3 "docs/implementation-notes/020-stage-25.patch"
+OUTPUT: empty
+EXIT: 0
+SETUP: Copy-Item .codex-artifacts/stage25-modified to .codex-artifacts/stage25-rollback-check recursively.
+COMMAND: .\scripts\rollback-stage25.ps1 -TargetRoot ".codex-artifacts/stage25-rollback-check"
+OUTPUT: ROLLBACK=PASS (source and README; user data and portable packages untouched)
+EXIT: 0
+COMMAND: git diff --no-index --exit-code -- ".codex-artifacts/stage25-original" ".codex-artifacts/stage25-rollback-check"
+OUTPUT: empty
+EXIT: 0
+COMMAND: git diff --check
+OUTPUT: empty
+EXIT: 0
+
+Behavior verified: stalled implicit TLS returns within the configured inactivity timeout; FTP/FTPS/FTPES cancellation still returns promptly and keeps .part; scheduler actions no longer execute inside the three UI callbacks. No public BT swarm or manual UI interaction was used.

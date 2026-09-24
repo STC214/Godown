@@ -1,0 +1,746 @@
+diff --git a/.codex-artifacts/stage27-original/README.md b/.codex-artifacts/stage27-modified/README.md
+index 1286b69..9113973 100644
+--- a/.codex-artifacts/stage27-original/README.md
++++ b/.codex-artifacts/stage27-modified/README.md
+@@ -2,12 +2,12 @@
+ 
+ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
+ 
+-> 当前实现进度为 Stage 26：将后台调度操作统一为 FIFO 队列，修复快速连续点击时操作乱序及窗口退出时遗留后台任务的问题。此前的 FTP/FTPS 空闲超时、快速取消、任务记录保护、v2-only 和运行中 BT 文件选择继续保留。详见 [Stage 26 修复记录](docs/implementation-notes/021-stage-26-action-order.md)。
++> 当前实现进度为 Stage 27：FTP、FTPS 和 FTPES 支持递归下载远程目录，具备目录清单持久化、逐文件续传、空目录保留、聚合进度和安全重下清理。此前的连接超时、快速取消及后台调度队列继续保留。详见 [Stage 27 实现记录](docs/implementation-notes/022-stage-27-ftp-directory.md)。
+ 
+ ## 已实现功能
+ 
+ - HTTP(S) 分块下载、重试、限速、暂停与继续。
+-- FTP、隐式 FTPS（`ftps://`）和显式 FTPS（`ftpes://`）单文件下载、重试、限速与断点续传。
++- FTP、隐式 FTPS（`ftps://`）和显式 FTPS（`ftpes://`）单文件及递归目录下载、重试、限速与断点续传。
+ - M3U8 解析、外部运行时调用、下载与合并。
+ - BitTorrent：本地/远程 `.torrent`、`file://`、v1 `btih`、v2 `btmh` 及混合 Magnet。
+ - BT 多文件选择、低/普通/高文件优先级、运行中改选、Tracker 合并、校验块断点续传及完成后做种。
+@@ -48,7 +48,7 @@ go mod download
+ 
+ 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
+ 
+-当前验证版本为 `0.1.19-stage26`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
++当前验证版本为 `0.1.20-stage27`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+ 
+ ### 工作区清洁约定
+ 
+@@ -90,7 +90,7 @@ Stage 15 验证结果：项目语句覆盖率为 54.1%；`cmd/gd3win`、`cmd/gd3
+ 
+ ## 当前边界
+ 
+-- FTP 系列地址当前支持单文件下载，不递归下载远程目录；FTP 代理支持直连或 SOCKS5。
++- FTP 系列地址支持单文件和递归目录下载；目录任务最多保存 100,000 个目录项，符号链接会跳过，代理支持直连或 SOCKS5。
+ - 修改运行中 BT 文件选择和优先级时，程序会短暂停止 BT runtime、保存最新检查点、串行应用编辑后自动恢复，以避免运行时状态竞争。
+ - BT 的 HTTP 元数据、HTTP/WebSocket Tracker 与 WebSeed 遵循代理设置；原生 Peer、DHT 和 UDP Tracker 使用 BT 引擎网络栈。
+ - LSD、UPnP 与 NAT-PMP 受当前 BT 引擎公开接口约束，详见 [Stage 5 实现记录](docs/implementation-notes/005-stage-5-bittorrent.md)。
+diff --git a/.codex-artifacts/stage27-original/docs/DEVELOPMENT.zh-CN.md b/.codex-artifacts/stage27-modified/docs/DEVELOPMENT.zh-CN.md
+index 36d7962..27b7861 100644
+--- a/.codex-artifacts/stage27-original/docs/DEVELOPMENT.zh-CN.md
++++ b/.codex-artifacts/stage27-modified/docs/DEVELOPMENT.zh-CN.md
+@@ -24,7 +24,7 @@ internal/core/              Task 模型、状态机与 Scheduler
+ internal/config/            路径和 Settings
+ internal/storage/           SQLite 配置与任务存储
+ internal/download/http/     HTTP 探测、分块下载和恢复
+-internal/download/ftp/      FTP/FTPS 探测、REST 恢复和单流下载
++internal/download/ftp/      FTP/FTPS 文件/目录探测、递归清单、REST 恢复和单流下载
+ internal/download/m3u8/     M3U8 解析及外部下载器 Worker
+ internal/download/ffmpeg/   媒体合并
+ internal/download/bt/       torrent 解析、文件选择模型、Worker 与恢复存储
+@@ -98,7 +98,7 @@ BT 进入 `seeding` 后设置 `UsesSlot=false`，因此做种任务不会阻塞
+ 5. 为暂停、恢复、清理、重新下载和应用退出补齐测试。
+ 6. 如任务存在“不占下载槽”的阶段，通过 `UsesSlot` 上报，不要绕过 Scheduler。
+ 
+-FTP Worker 使用独立 `.part` 文件恢复下载：`ftp://` 为普通 FTP，`ftps://` 为默认 990 端口的隐式 TLS，`ftpes://` 为默认 21 端口并通过 `AUTH TLS` 升级的显式 TLS。任务 URL 会移除凭据，持久化层使用当前用户 DPAPI 保护 FTP 密码并迁移旧明文记录；代理仅接受 SOCKS5。未知大小任务不会复用跨会话 `.part`，完成后 `.part` 原子改名为目标文件。
++FTP Worker 使用独立 `.part` 文件恢复下载：`ftp://` 为普通 FTP，`ftps://` 为默认 990 端口的隐式 TLS，`ftpes://` 为默认 21 端口并通过 `AUTH TLS` 升级的显式 TLS。任务 URL 会移除凭据，持久化层使用当前用户 DPAPI 保护 FTP 密码并迁移旧明文记录；代理仅接受 SOCKS5。未知大小单文件不会复用跨会话 `.part`，完成后 `.part` 原子改名为目标文件。目录任务在解析阶段使用 FTP Walker 建立持久清单，规范化 POSIX 远程路径并生成 Windows 安全相对路径；Worker 顺序下载清单文件、聚合进度、恢复各文件 `.part`，重下时通过任务根路径边界检查递归清理。
+ 
+ `Scheduler.EditTask` 是运行中修改任务配置的统一边界。它先取消当前 Worker 并等待其最终检查点，再对最新任务副本串行应用编辑；编辑、重新下载、开始、暂停和退出共享操作互斥边界，不会互相覆盖或在退出阶段重新排队。此前处于活动状态的任务会重新加入调度，明确暂停的任务保持暂停。BT 文件改选和优先级调整通过该接口更新 `files` 状态，避免 GUI 直接修改运行时状态。
+ 
+diff --git a/.codex-artifacts/stage27-original/docs/USER_GUIDE.zh-CN.md b/.codex-artifacts/stage27-modified/docs/USER_GUIDE.zh-CN.md
+index 1ca9a0b..0d9e1a8 100644
+--- a/.codex-artifacts/stage27-original/docs/USER_GUIDE.zh-CN.md
++++ b/.codex-artifacts/stage27-modified/docs/USER_GUIDE.zh-CN.md
+@@ -31,9 +31,9 @@
+ 
+ ### FTP / FTPS
+ 
+-支持 `ftp://` 普通 FTP、`ftps://` 隐式 TLS 和 `ftpes://` 显式 TLS 单文件地址。地址可包含用户名与密码，例如 `ftp://user:password@host/path/file.zip`；任务列表和持久任务 URL 会移除凭据，任务数据库中的 FTP 密码使用 Windows 当前用户 DPAPI 加密。旧版本留下的明文凭据会在首次加载时自动迁移。未填写账户时使用匿名登录。
++支持 `ftp://` 普通 FTP、`ftps://` 隐式 TLS 和 `ftpes://` 显式 TLS 的单文件及目录地址。目录可使用 `ftp://host/path/dir/`，未带末尾斜杠时程序也会在文件探测失败后尝试识别目录。地址可包含用户名与密码，例如 `ftp://user:password@host/path/file.zip`；任务列表和持久任务 URL 会移除凭据，任务数据库中的 FTP 密码使用 Windows 当前用户 DPAPI 加密。旧版本留下的明文凭据会在首次加载时自动迁移。未填写账户时使用匿名登录。
+ 
+-FTP 下载使用 `.part` 文件断点续传；服务器不接受 REST 恢复时会自动从头重试。服务器不支持 SIZE 命令时仍可下载，但重新启动任务时会丢弃无法校验长度的旧 `.part` 并从头开始。输出文件名会按 Windows 规则清理非法字符、多重扩展保留设备名和尾随点/空格。全局限速和重试次数同样生效。当前仅支持单文件，不递归下载远程目录；代理设置为空时直连，设置代理时仅支持 SOCKS5/SOCKS5H。
++FTP 下载使用 `.part` 文件断点续传；服务器不接受 REST 恢复时会自动从头重试。服务器不支持 SIZE 命令时仍可下载单文件，但重新启动任务时会丢弃无法校验长度的旧 `.part` 并从头开始。目录任务创建时会递归保存最多 100,000 个目录项，下载时保留层级和空目录、跳过符号链接、跳过大小相同的已完成文件，并对未完成文件逐个续传。输出名称会按 Windows 规则清理非法字符、设备名和尾随点/空格；清理后发生重名会停止创建任务。全局限速和重试次数同样生效。代理设置为空时直连，设置代理时仅支持 SOCKS5/SOCKS5H。
+ 
+ ### M3U8
+ 
+diff --git a/.codex-artifacts/stage27-original/internal/core/model.go b/.codex-artifacts/stage27-modified/internal/core/model.go
+index 905288f..8a6046c 100644
+--- a/.codex-artifacts/stage27-original/internal/core/model.go
++++ b/.codex-artifacts/stage27-modified/internal/core/model.go
+@@ -79,6 +79,9 @@ func (t Task) CleanupFiles() error {
+ 		return nil
+ 	}
+ 	if t.PackID == "ftp" {
++		if t.Stage.State["directory"] == "true" {
++			return removeTaskOwnedPath(t.Path, outputFile)
++		}
+ 		if err := removeIfExists(outputFile + ".part"); err != nil {
+ 			return err
+ 		}
+diff --git a/.codex-artifacts/stage27-original/internal/core/scheduler_test.go b/.codex-artifacts/stage27-modified/internal/core/scheduler_test.go
+index 59c41af..6fa189d 100644
+--- a/.codex-artifacts/stage27-original/internal/core/scheduler_test.go
++++ b/.codex-artifacts/stage27-modified/internal/core/scheduler_test.go
+@@ -843,6 +843,37 @@ func TestTaskCleanupFilesRemovesOnlyBitTorrentOwnedPaths(t *testing.T) {
+ 	}
+ }
+ 
++func TestTaskCleanupFilesRemovesOnlyFTPDirectoryTaskRoot(t *testing.T) {
++	base := t.TempDir()
++	task := NewTask("ftp", "remote-tree", "ftp://fixture/tree/", base, 4, NewStage("ftp", "ftp://fixture/tree/", 4, 1, 0, true, nil, ""))
++	task.Stage.State = map[string]string{"directory": "true"}
++	output := task.OutputFile()
++	if err := os.MkdirAll(filepath.Join(output, "nested"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(output, "nested", "file.bin.part"), []byte("data"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	keep := filepath.Join(base, "keep.txt")
++	if err := os.WriteFile(keep, []byte("keep"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := task.CleanupFiles(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := os.Stat(output); !os.IsNotExist(err) {
++		t.Fatalf("FTP directory root still exists: %v", err)
++	}
++	if _, err := os.Stat(keep); err != nil {
++		t.Fatalf("unrelated file was removed: %v", err)
++	}
++	unsafe := task
++	unsafe.Title = ".."
++	if err := unsafe.CleanupFiles(); err == nil {
++		t.Fatal("unsafe FTP directory cleanup target was accepted")
++	}
++}
++
+ func TestSchedulerEventBackpressureKeepsNewestStateAndCloses(t *testing.T) {
+ 	scheduler := NewScheduler(NewRegistry(), nil, 1)
+ 	for i := 0; i < cap(scheduler.events); i++ {
+diff --git a/.codex-artifacts/stage27-original/internal/download/ftp/ftp.go b/.codex-artifacts/stage27-modified/internal/download/ftp/ftp.go
+index 91358d7..1d6dd0a 100644
+--- a/.codex-artifacts/stage27-original/internal/download/ftp/ftp.go
++++ b/.codex-artifacts/stage27-modified/internal/download/ftp/ftp.go
+@@ -3,6 +3,7 @@ package ftpdownload
+ import (
+ 	"context"
+ 	"crypto/tls"
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+@@ -12,6 +13,7 @@ import (
+ 	"os"
+ 	"path"
+ 	"path/filepath"
++	"sort"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -25,12 +27,15 @@ import (
+ )
+ 
+ const (
+-	stateHost       = "host"
+-	stateRemotePath = "remotePath"
+-	stateUsername   = "username"
+-	statePassword   = "password"
+-	stateTLSMode    = "tlsMode"
+-	stateTimeout    = "timeoutSeconds"
++	stateHost           = "host"
++	stateRemotePath     = "remotePath"
++	stateUsername       = "username"
++	statePassword       = "password"
++	stateTLSMode        = "tlsMode"
++	stateTimeout        = "timeoutSeconds"
++	stateDirectory      = "directory"
++	stateEntries        = "entries"
++	maxDirectoryEntries = 100000
+ )
+ 
+ type Worker struct {
+@@ -42,6 +47,14 @@ type sourceInfo struct {
+ 	host, remotePath, username, password, tlsMode string
+ 	timeout                                       time.Duration
+ 	tlsConfig                                     *tls.Config
++	directory                                     bool
++}
++
++type directoryEntry struct {
++	RemotePath   string `json:"remotePath"`
++	RelativePath string `json:"relativePath"`
++	Size         int64  `json:"size"`
++	Directory    bool   `json:"directory,omitempty"`
+ }
+ 
+ func IsSource(source string) bool {
+@@ -70,8 +83,14 @@ func parse(ctx context.Context, source, downloadDir, proxyURL string, maxRetries
+ 		return core.Task{}, err
+ 	}
+ 	defer conn.Quit()
++	if info.directory {
++		return newDirectoryTask(conn, info, cleanURL, downloadDir, proxyURL, maxRetries)
++	}
+ 	size, err := conn.FileSize(info.remotePath)
+ 	if err != nil && !sizeCommandUnsupported(err) {
++		if task, directoryErr := newDirectoryTask(conn, info, cleanURL, downloadDir, proxyURL, maxRetries); directoryErr == nil {
++			return task, nil
++		}
+ 		return core.Task{}, fmt.Errorf("读取 FTP 文件大小：%w", err)
+ 	}
+ 	if err != nil {
+@@ -90,6 +109,93 @@ func parse(ctx context.Context, source, downloadDir, proxyURL string, maxRetries
+ 	return core.NewTask("ftp", title, cleanURL, downloadDir, size, stage), nil
+ }
+ 
++func newDirectoryTask(conn *ftp.ServerConn, info sourceInfo, cleanURL, downloadDir, proxyURL string, maxRetries int) (core.Task, error) {
++	entries, total, err := listDirectory(conn, info.remotePath)
++	if err != nil {
++		return core.Task{}, fmt.Errorf("读取 FTP 目录：%w", err)
++	}
++	encoded, err := json.Marshal(entries)
++	if err != nil {
++		return core.Task{}, fmt.Errorf("保存 FTP 目录清单：%w", err)
++	}
++	title := safeFileName(path.Base(info.remotePath))
++	if info.remotePath == "/" || title == "" {
++		title = "ftp-root"
++	}
++	stage := core.NewStage("ftp", cleanURL, total, 1, maxRetries, true, nil, proxyURL)
++	stage.State = map[string]string{
++		stateHost: info.host, stateRemotePath: info.remotePath,
++		stateUsername: info.username, statePassword: info.password,
++		stateTLSMode: info.tlsMode, stateTimeout: strconv.Itoa(int(info.timeout / time.Second)),
++		stateDirectory: "true", stateEntries: string(encoded),
++	}
++	return core.NewTask("ftp", title, cleanURL, downloadDir, total, stage), nil
++}
++
++func listDirectory(conn *ftp.ServerConn, root string) ([]directoryEntry, int64, error) {
++	walker := conn.Walk(root)
++	root = path.Clean(root)
++	prefix := strings.TrimSuffix(root, "/") + "/"
++	if root == "/" {
++		prefix = "/"
++	}
++	entries := make([]directoryEntry, 0)
++	seen := make(map[string]bool)
++	var total int64
++	for walker.Next() {
++		entry := walker.Stat()
++		if entry == nil || entry.Type == ftp.EntryTypeLink {
++			continue
++		}
++		remotePath := path.Clean(walker.Path())
++		if !strings.HasPrefix(remotePath, prefix) {
++			return nil, 0, fmt.Errorf("目录项超出根目录：%q", walker.Path())
++		}
++		relative := strings.TrimPrefix(remotePath, prefix)
++		if relative == "" {
++			return nil, 0, fmt.Errorf("FTP 目录项缺少相对路径：%q", walker.Path())
++		}
++		local, err := safeRelativePath(relative, entry.Type == ftp.EntryTypeFolder, seen)
++		if err != nil {
++			return nil, 0, err
++		}
++		item := directoryEntry{RemotePath: remotePath, RelativePath: local, Directory: entry.Type == ftp.EntryTypeFolder}
++		if !item.Directory {
++			if entry.Size > uint64(1<<63-1)-uint64(total) {
++				return nil, 0, errors.New("FTP 目录总大小超出支持范围")
++			}
++			item.Size = int64(entry.Size)
++			total += item.Size
++		}
++		entries = append(entries, item)
++		if len(entries) > maxDirectoryEntries {
++			return nil, 0, fmt.Errorf("FTP 目录项超过上限 %d", maxDirectoryEntries)
++		}
++	}
++	if err := walker.Err(); err != nil {
++		return nil, 0, err
++	}
++	sort.Slice(entries, func(i, j int) bool { return entries[i].RelativePath < entries[j].RelativePath })
++	return entries, total, nil
++}
++
++func safeRelativePath(remote string, directory bool, seen map[string]bool) (string, error) {
++	parts := strings.Split(remote, "/")
++	local := make([]string, len(parts))
++	for index, part := range parts {
++		local[index] = safeFileName(part)
++		key := strings.ToLower(strings.Join(local[:index+1], "/"))
++		isDirectory := index < len(parts)-1 || directory
++		if previousDirectory, exists := seen[key]; exists && previousDirectory != isDirectory {
++			return "", fmt.Errorf("FTP 目录项本地路径冲突：%q", remote)
++		} else if exists && index == len(parts)-1 {
++			return "", fmt.Errorf("FTP 目录项清理后重名：%q", remote)
++		}
++		seen[key] = isDirectory
++	}
++	return strings.Join(local, "/"), nil
++}
++
+ func sizeCommandUnsupported(err error) bool {
+ 	var protocolError *textproto.Error
+ 	if !errors.As(err, &protocolError) {
+@@ -129,6 +235,9 @@ func (w Worker) Run(ctx context.Context, task core.Task, report func(core.Progre
+ 	if err := os.MkdirAll(task.Path, 0o755); err != nil {
+ 		return err
+ 	}
++	if info.directory {
++		return w.runDirectory(ctx, task, info, report)
++	}
+ 	output := task.OutputFile()
+ 	partial := output + ".part"
+ 	var offset int64
+@@ -190,6 +299,144 @@ func (w Worker) Run(ctx context.Context, task core.Task, report func(core.Progre
+ 	return nil
+ }
+ 
++func (w Worker) runDirectory(ctx context.Context, task core.Task, info sourceInfo, report func(core.ProgressUpdate)) error {
++	var entries []directoryEntry
++	if err := json.Unmarshal([]byte(task.Stage.State[stateEntries]), &entries); err != nil {
++		return fmt.Errorf("读取 FTP 目录清单：%w", err)
++	}
++	root := task.OutputFile()
++	if err := os.MkdirAll(root, 0o755); err != nil {
++		return err
++	}
++	var received int64
++	seen := make(map[string]bool, len(entries))
++	for _, entry := range entries {
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		normalized, err := safeRelativePath(entry.RelativePath, entry.Directory, seen)
++		if err != nil || normalized != entry.RelativePath || entry.Size < 0 {
++			return fmt.Errorf("FTP 目录清单项无效：%q", entry.RelativePath)
++		}
++		localPath, err := directoryOutputPath(root, entry.RelativePath)
++		if err != nil {
++			return err
++		}
++		if entry.Directory {
++			if err := os.MkdirAll(localPath, 0o755); err != nil {
++				return err
++			}
++			continue
++		}
++		if !remoteChild(info.remotePath, entry.RemotePath) {
++			return fmt.Errorf("FTP 目录项超出远程根目录：%q", entry.RemotePath)
++		}
++		if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
++			return err
++		}
++		fileInfo := info
++		fileInfo.remotePath = entry.RemotePath
++		fileReceived, err := w.downloadDirectoryFile(ctx, fileInfo, task.Stage.ProxyURL, localPath, entry.Size, task.Stage.MaxRetries, func(current, speed int64, detail string) {
++			report(update(received+current, task.FileSize, speed, detail+"："+entry.RelativePath))
++		})
++		if err != nil {
++			return err
++		}
++		received += fileReceived
++	}
++	completed := update(received, received, 0, "FTP 目录下载完成")
++	completed.Progress = 100
++	report(completed)
++	return nil
++}
++
++func (w Worker) downloadDirectoryFile(ctx context.Context, info sourceInfo, proxyURL, output string, size int64, maxRetries int, report func(int64, int64, string)) (int64, error) {
++	if stat, err := os.Stat(output); err == nil && !stat.IsDir() && stat.Size() == size {
++		return size, nil
++	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
++		return 0, err
++	}
++	partial := output + ".part"
++	var received int64
++	if stat, err := os.Stat(partial); err == nil {
++		received = stat.Size()
++	} else if !errors.Is(err, os.ErrNotExist) {
++		return 0, err
++	}
++	if received > size || (size == 0 && received > 0) {
++		if err := os.Truncate(partial, 0); err != nil {
++			return 0, err
++		}
++		received = 0
++	}
++	report(received, 0, "正在连接 FTP 服务器")
++	failures := 0
++	for {
++		start := received
++		err := w.transfer(ctx, info, proxyURL, partial, &received, size, func(progress core.ProgressUpdate) {
++			report(progress.Received, progress.Speed, "正在下载 FTP 文件")
++		})
++		if err == nil {
++			break
++		}
++		if ctx.Err() != nil {
++			return received, ctx.Err()
++		}
++		if received > start {
++			failures = 0
++		}
++		failures++
++		if failures > maxRetries {
++			return received, err
++		}
++		select {
++		case <-ctx.Done():
++			return received, ctx.Err()
++		case <-time.After(time.Duration(failures) * time.Second):
++		}
++	}
++	if received != size {
++		return received, fmt.Errorf("FTP 文件大小不匹配：%q 收到 %d，预期 %d", info.remotePath, received, size)
++	}
++	if err := os.Remove(output); err != nil && !errors.Is(err, os.ErrNotExist) {
++		return received, err
++	}
++	if err := os.Rename(partial, output); err != nil {
++		return received, fmt.Errorf("完成 FTP 文件 %q：%w", info.remotePath, err)
++	}
++	return received, nil
++}
++
++func directoryOutputPath(root, relative string) (string, error) {
++	if relative == "" || path.IsAbs(relative) || strings.Contains(relative, `\`) {
++		return "", fmt.Errorf("FTP 目录项本地路径无效：%q", relative)
++	}
++	target := filepath.Join(root, filepath.FromSlash(relative))
++	cleanRoot, err := filepath.Abs(filepath.Clean(root))
++	if err != nil {
++		return "", err
++	}
++	cleanTarget, err := filepath.Abs(filepath.Clean(target))
++	if err != nil {
++		return "", err
++	}
++	rel, err := filepath.Rel(cleanRoot, cleanTarget)
++	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
++		return "", fmt.Errorf("FTP 目录项本地路径越界：%q", relative)
++	}
++	return cleanTarget, nil
++}
++
++func remoteChild(root, candidate string) bool {
++	root = path.Clean(root)
++	candidate = path.Clean(candidate)
++	prefix := strings.TrimSuffix(root, "/") + "/"
++	if root == "/" {
++		prefix = "/"
++	}
++	return strings.HasPrefix(candidate, prefix) && candidate != root
++}
++
+ func (w Worker) transfer(ctx context.Context, info sourceInfo, proxyURL, partial string, received *int64, total int64, report func(core.ProgressUpdate)) error {
+ 	conn, err := dial(ctx, info, proxyURL)
+ 	if err != nil {
+@@ -328,12 +575,13 @@ func parseSource(source string) (sourceInfo, string, error) {
+ 		}
+ 	}
+ 	remotePath, err := url.PathUnescape(u.EscapedPath())
+-	if err != nil || remotePath == "" || strings.HasSuffix(remotePath, "/") {
+-		return sourceInfo{}, "", errors.New("FTP 地址必须指向文件")
++	if err != nil || remotePath == "" {
++		return sourceInfo{}, "", errors.New("FTP 地址必须指向文件或目录")
+ 	}
++	directory := strings.HasSuffix(remotePath, "/")
+ 	clean := *u
+ 	clean.User = nil
+-	return sourceInfo{host: host, remotePath: path.Clean(remotePath), username: username, password: password, tlsMode: tlsMode, timeout: 30 * time.Second}, clean.String(), nil
++	return sourceInfo{host: host, remotePath: path.Clean(remotePath), username: username, password: password, tlsMode: tlsMode, timeout: 30 * time.Second, directory: directory}, clean.String(), nil
+ }
+ 
+ func sourceFromTask(task core.Task) (sourceInfo, error) {
+@@ -345,7 +593,7 @@ func sourceFromTask(task core.Task) (sourceInfo, error) {
+ 	if seconds, err := strconv.Atoi(s[stateTimeout]); err == nil && seconds > 0 {
+ 		timeout = time.Duration(seconds) * time.Second
+ 	}
+-	return sourceInfo{host: s[stateHost], remotePath: s[stateRemotePath], username: s[stateUsername], password: s[statePassword], tlsMode: s[stateTLSMode], timeout: timeout}, nil
++	return sourceInfo{host: s[stateHost], remotePath: s[stateRemotePath], username: s[stateUsername], password: s[statePassword], tlsMode: s[stateTLSMode], timeout: timeout, directory: s[stateDirectory] == "true"}, nil
+ }
+ 
+ // Closing the underlying socket interrupts both data reads and final control
+diff --git a/.codex-artifacts/stage27-original/internal/download/ftp/ftp_test.go b/.codex-artifacts/stage27-modified/internal/download/ftp/ftp_test.go
+index 77b6745..a97ff8a 100644
+--- a/.codex-artifacts/stage27-original/internal/download/ftp/ftp_test.go
++++ b/.codex-artifacts/stage27-modified/internal/download/ftp/ftp_test.go
+@@ -16,6 +16,10 @@ import (
+ 	"math/big"
+ 	"net"
+ 	"os"
++	"path"
++	"path/filepath"
++	"reflect"
++	"sort"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -72,9 +76,13 @@ func TestParseSourceFTPESUsesExplicitTLS(t *testing.T) {
+ 	}
+ }
+ 
+-func TestParseRejectsDirectory(t *testing.T) {
+-	if _, _, err := parseSource("ftp://example.test/files/"); err == nil {
+-		t.Fatal("directory source accepted")
++func TestParseSourceAcceptsDirectory(t *testing.T) {
++	info, clean, err := parseSource("ftp://user:pass@example.test/files/")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !info.directory || info.remotePath != "/files" || clean != "ftp://example.test/files/" {
++		t.Fatalf("unexpected directory source: info=%#v clean=%q", info, clean)
+ 	}
+ }
+ 
+@@ -102,6 +110,19 @@ func TestSafeFileNameForWindowsOutput(t *testing.T) {
+ 	}
+ }
+ 
++func TestSafeRelativePathRejectsWindowsCollisions(t *testing.T) {
++	seen := make(map[string]bool)
++	if got, err := safeRelativePath("folder/bad:name.txt", false, seen); err != nil || got != "folder/bad_name.txt" {
++		t.Fatalf("first path=%q err=%v", got, err)
++	}
++	if _, err := safeRelativePath("folder/bad?name.txt", false, seen); err == nil {
++		t.Fatal("case-insensitive sanitized collision accepted")
++	}
++	if _, err := directoryOutputPath(t.TempDir(), "../escape.txt"); err == nil {
++		t.Fatal("local traversal path accepted")
++	}
++}
++
+ func TestParseHonorsCanceledContext(t *testing.T) {
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	cancel()
+@@ -253,6 +274,215 @@ func TestParseAndWorkerSupportServerWithoutSizeCommand(t *testing.T) {
+ 	}
+ }
+ 
++func TestParseAndWorkerDownloadDirectoryRecursively(t *testing.T) {
++	files := map[string][]byte{
++		"/tree/root.txt":       []byte("already complete"),
++		"/tree/bad:name?.txt":  []byte("safe local name"),
++		"/tree/sub/nested.bin": bytes.Repeat([]byte("nested"), 128),
++	}
++	address, requests, stop := startFTPDirectoryServer(t, files)
++	defer stop()
++	downloadDir := t.TempDir()
++	task, err := Parse(context.Background(), "ftp://user:pass@"+address+"/tree", downloadDir, "", 1)
++	if err != nil {
++		t.Fatal(err)
++	}
++	wantSize := int64(len(files["/tree/root.txt"]) + len(files["/tree/bad:name?.txt"]) + len(files["/tree/sub/nested.bin"]))
++	if task.Title != "tree" || task.FileSize != wantSize || task.Stage.State[stateDirectory] != "true" {
++		t.Fatalf("unexpected directory task: %#v", task)
++	}
++	root := task.OutputFile()
++	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(root, "root.txt"), files["/tree/root.txt"], 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(root, "sub", "nested.bin.part"), files["/tree/sub/nested.bin"][:12], 0o600); err != nil {
++		t.Fatal(err)
++	}
++	var final core.ProgressUpdate
++	if err := (Worker{}).Run(context.Background(), task, func(update core.ProgressUpdate) { final = update }); err != nil {
++		t.Fatal(err)
++	}
++	for remote, relative := range map[string]string{
++		"/tree/root.txt":       "root.txt",
++		"/tree/bad:name?.txt":  "bad_name_.txt",
++		"/tree/sub/nested.bin": "sub/nested.bin",
++	} {
++		got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
++		if err != nil || !bytes.Equal(got, files[remote]) {
++			t.Fatalf("directory payload %s mismatch: %v", relative, err)
++		}
++	}
++	if stat, err := os.Stat(filepath.Join(root, "empty")); err != nil || !stat.IsDir() {
++		t.Fatalf("empty directory not preserved: %v", err)
++	}
++	if final.Progress != 100 || final.Received != wantSize || final.FileSize != wantSize {
++		t.Fatalf("directory completion mismatch: %+v", final)
++	}
++	requests.mu.Lock()
++	defer requests.mu.Unlock()
++	if len(requests.offsets["/tree/root.txt"]) != 0 {
++		t.Fatalf("completed file downloaded again: %v", requests.offsets)
++	}
++	if !reflect.DeepEqual(requests.offsets["/tree/sub/nested.bin"], []int{12}) {
++		t.Fatalf("nested resume offsets=%v", requests.offsets["/tree/sub/nested.bin"])
++	}
++}
++
++type ftpDirectoryRequests struct {
++	mu      sync.Mutex
++	offsets map[string][]int
++}
++
++func startFTPDirectoryServer(t *testing.T, files map[string][]byte) (string, *ftpDirectoryRequests, func()) {
++	t.Helper()
++	listener, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	requests := &ftpDirectoryRequests{offsets: make(map[string][]int)}
++	var wg sync.WaitGroup
++	stopped := make(chan struct{})
++	go func() {
++		defer close(stopped)
++		for {
++			conn, err := listener.Accept()
++			if err != nil {
++				return
++			}
++			wg.Add(1)
++			go func() {
++				defer wg.Done()
++				handleFTPDirectoryConnection(conn, files, requests)
++			}()
++		}
++	}()
++	return listener.Addr().String(), requests, func() {
++		_ = listener.Close()
++		<-stopped
++		wg.Wait()
++	}
++}
++
++func handleFTPDirectoryConnection(conn net.Conn, files map[string][]byte, requests *ftpDirectoryRequests) {
++	defer conn.Close()
++	reader := bufio.NewReader(conn)
++	writer := bufio.NewWriter(conn)
++	reply := func(format string, args ...any) {
++		_, _ = fmt.Fprintf(writer, format+"\r\n", args...)
++		_ = writer.Flush()
++	}
++	reply("220 directory fixture")
++	var passive net.Listener
++	var offset int
++	defer func() {
++		if passive != nil {
++			_ = passive.Close()
++		}
++	}()
++	for {
++		line, err := reader.ReadString('\n')
++		if err != nil {
++			return
++		}
++		fields := strings.SplitN(strings.TrimSpace(line), " ", 2)
++		command := strings.ToUpper(fields[0])
++		argument := ""
++		if len(fields) == 2 {
++			argument = fields[1]
++		}
++		switch command {
++		case "USER":
++			reply("331 password required")
++		case "PASS":
++			reply("230 logged in")
++		case "FEAT":
++			reply("211-Features")
++			reply(" MLST type*;size*;")
++			reply(" REST STREAM")
++			reply(" EPSV")
++			reply("211 End")
++		case "SYST":
++			reply("215 UNIX Type: L8")
++		case "OPTS", "TYPE", "NOOP":
++			reply("200 OK")
++		case "SIZE":
++			if content, ok := files[argument]; ok {
++				reply("213 %d", len(content))
++			} else {
++				reply("550 not a file")
++			}
++		case "EPSV":
++			if passive != nil {
++				_ = passive.Close()
++			}
++			passive, _ = net.Listen("tcp", "127.0.0.1:0")
++			reply("229 Entering Extended Passive Mode (|||%d|)", passive.Addr().(*net.TCPAddr).Port)
++		case "MLSD":
++			reply("150 opening data connection")
++			dataConn, err := passive.Accept()
++			if err != nil {
++				return
++			}
++			for _, listing := range directoryListing(argument, files) {
++				_, _ = fmt.Fprintln(dataConn, listing)
++			}
++			_ = dataConn.Close()
++			_ = passive.Close()
++			passive = nil
++			reply("226 listing complete")
++		case "REST":
++			offset, _ = strconv.Atoi(argument)
++			reply("350 restart accepted")
++		case "RETR":
++			content, ok := files[argument]
++			if !ok {
++				reply("550 not found")
++				continue
++			}
++			reply("150 opening data connection")
++			dataConn, err := passive.Accept()
++			if err != nil {
++				return
++			}
++			requests.mu.Lock()
++			requests.offsets[argument] = append(requests.offsets[argument], offset)
++			requests.mu.Unlock()
++			_, _ = dataConn.Write(content[offset:])
++			_ = dataConn.Close()
++			_ = passive.Close()
++			passive = nil
++			offset = 0
++			reply("226 transfer complete")
++		case "QUIT":
++			reply("221 goodbye")
++			return
++		default:
++			reply("502 unsupported")
++		}
++	}
++}
++
++func directoryListing(directory string, files map[string][]byte) []string {
++	directory = path.Clean(directory)
++	directories := map[string]bool{"/tree": true, "/tree/sub": true, "/tree/empty": true}
++	var lines []string
++	for pathName := range directories {
++		if path.Dir(pathName) == directory {
++			lines = append(lines, "type=dir; "+path.Base(pathName))
++		}
++	}
++	for pathName, content := range files {
++		if path.Dir(pathName) == directory {
++			lines = append(lines, fmt.Sprintf("type=file;size=%d; %s", len(content), path.Base(pathName)))
++		}
++	}
++	sort.Strings(lines)
++	return lines
++}
++
+ func startFTPServer(t *testing.T, content []byte) (string, func()) {
+ 	return startFTPServerWithSize(t, content, true)
+ }

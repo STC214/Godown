@@ -4,24 +4,28 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
 )
 
 type Scheduler struct {
-	mu       sync.Mutex
-	tasks    map[string]*Task
-	order    []string
-	running  map[string]*runningTask
-	registry *registry
-	store    TaskStore
-	events   chan Event
+	mu           sync.Mutex
+	editMu       sync.Mutex
+	editSerialMu sync.Mutex
+	tasks        map[string]*Task
+	order        []string
+	running      map[string]*runningTask
+	registry     *registry
+	store        TaskStore
+	events       chan Event
 
 	maxRunning   int
 	saveTimer    *time.Timer
 	stopping     bool
 	eventsClosed bool
+	loadFailed   bool
 }
 
 type runningTask struct {
@@ -48,13 +52,22 @@ func (s *Scheduler) Load() error {
 		return nil
 	}
 	tasks, err := s.store.Load()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.loadFailed = err != nil
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	migrated := false
 	for i := range tasks {
 		task := cloneTask(tasks[i])
+		prepared, err := task.PrepareFTPDirectoryOutput()
+		if err != nil {
+			s.loadFailed = true
+			return err
+		}
+		migrated = migrated || prepared.OutputFile() != task.OutputFile()
+		task = prepared
 		if task.Status == StatusRunning || task.Status == StatusSeeding {
 			task.Status = StatusPaused
 			task.Stage.Status = StatusPaused
@@ -63,6 +76,9 @@ func (s *Scheduler) Load() error {
 		}
 		s.tasks[task.ID] = &task
 		s.order = append(s.order, task.ID)
+	}
+	if migrated {
+		s.scheduleSaveLocked()
 	}
 	s.emitLocked()
 	return nil
@@ -88,15 +104,30 @@ func (s *Scheduler) SetMaxRunning(maxRunning int) {
 func (s *Scheduler) Add(task Task) {
 	s.mu.Lock()
 	task = cloneTask(task)
+	requestedStatus := task.Status
+	prepared, err := task.PrepareFTPDirectoryOutput()
+	if err == nil {
+		task = prepared
+		if requestedStatus == StatusWaiting && task.Status == StatusPaused {
+			task.Status, task.Stage.Status = StatusWaiting, StatusWaiting
+		}
+	} else {
+		task.Status, task.Stage.Status = StatusFailed, StatusFailed
+		task.Error, task.Stage.Error = err.Error(), err.Error()
+	}
 	s.tasks[task.ID] = &task
 	s.order = append(s.order, task.ID)
-	s.scheduleLocked(task.ID)
+	if err == nil && task.Status != StatusPaused {
+		s.scheduleLocked(task.ID)
+	}
 	s.scheduleSaveLocked()
 	s.emitLocked()
 	s.mu.Unlock()
 }
 
 func (s *Scheduler) TogglePause(taskID string) error {
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	task := s.tasks[taskID]
@@ -136,6 +167,8 @@ func (s *Scheduler) TogglePause(taskID string) error {
 }
 
 func (s *Scheduler) StartAll() {
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, id := range s.order {
@@ -154,6 +187,8 @@ func (s *Scheduler) StartAll() {
 }
 
 func (s *Scheduler) PauseAll() {
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, running := range s.running {
@@ -201,6 +236,8 @@ func (s *Scheduler) Remove(taskID string) error {
 }
 
 func (s *Scheduler) Redownload(taskID string) error {
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
 	s.mu.Lock()
 	task := s.tasks[taskID]
 	if task == nil {
@@ -243,6 +280,9 @@ func (s *Scheduler) Redownload(taskID string) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.stopping {
+		return errors.New("scheduler stopping")
+	}
 	task = s.tasks[taskID]
 	if task == nil {
 		return errors.New("task not found")
@@ -291,10 +331,14 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
 	if edit == nil {
 		return errors.New("task editor is nil")
 	}
+	s.editSerialMu.Lock()
+	defer s.editSerialMu.Unlock()
+	s.editMu.Lock()
 	s.mu.Lock()
 	task := s.tasks[taskID]
 	if task == nil {
 		s.mu.Unlock()
+		s.editMu.Unlock()
 		return errors.New("task not found")
 	}
 	resume := task.Status != StatusPaused && task.Status != StatusCanceled
@@ -315,17 +359,36 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
 	}
 
 	s.mu.Lock()
+	if s.stopping {
+		s.mu.Unlock()
+		s.editMu.Unlock()
+		return errors.New("scheduler stopping")
+	}
 	task = s.tasks[taskID]
 	if task == nil {
 		s.mu.Unlock()
+		s.editMu.Unlock()
 		return errors.New("task not found")
 	}
 	original := cloneTask(*task)
 	s.mu.Unlock()
+	s.editMu.Unlock()
 
-	edited, err := edit(original)
+	edited, err := edit(cloneTask(original))
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopping {
+		return errors.New("scheduler stopping")
+	}
+	if s.tasks[taskID] == nil {
+		return errors.New("task not found")
+	}
+	if !reflect.DeepEqual(*s.tasks[taskID], original) {
+		return errors.New("task changed during edit")
+	}
 	if err != nil {
-		s.mu.Lock()
 		if current := s.tasks[taskID]; current != nil && resume {
 			current.Status = StatusWaiting
 			current.Stage.Status = StatusWaiting
@@ -333,7 +396,6 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
 			s.scheduleSaveLocked()
 			s.emitLocked()
 		}
-		s.mu.Unlock()
 		return err
 	}
 	edited.ID = original.ID
@@ -351,11 +413,6 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
 		edited.Stage.Status = StatusPaused
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.tasks[taskID] == nil {
-		return errors.New("task not found")
-	}
 	cloned := cloneTask(edited)
 	s.tasks[taskID] = &cloned
 	if resume {
@@ -367,6 +424,8 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
 }
 
 func (s *Scheduler) StopAll() {
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
 	s.mu.Lock()
 	s.stopping = true
 	runningTasks := make([]*runningTask, 0, len(s.running))
@@ -605,7 +664,7 @@ func (s *Scheduler) emitLocked() {
 }
 
 func (s *Scheduler) scheduleSaveLocked() {
-	if s.store == nil || s.stopping {
+	if s.store == nil || s.stopping || s.loadFailed {
 		return
 	}
 	if s.saveTimer != nil {
@@ -622,7 +681,7 @@ func (s *Scheduler) scheduleSaveLocked() {
 }
 
 func (s *Scheduler) saveLocked() {
-	if s.store == nil {
+	if s.store == nil || s.loadFailed {
 		return
 	}
 	tasks := make([]Task, 0, len(s.tasks))

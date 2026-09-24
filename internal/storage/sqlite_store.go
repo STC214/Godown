@@ -47,8 +47,8 @@ func (s *SQLiteTaskStore) Load() ([]core.Task, error) {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var tasks []core.Task
+	needsMigration := false
 	for rows.Next() {
 		var payload []byte
 		if err := rows.Scan(&payload); err != nil {
@@ -56,11 +56,30 @@ func (s *SQLiteTaskStore) Load() ([]core.Task, error) {
 		}
 		var task core.Task
 		if err := json.Unmarshal(payload, &task); err != nil {
+			_ = rows.Close()
 			return nil, fmt.Errorf("decode task payload: %w", err)
 		}
+		task, migrate, err := unprotectTaskSecrets(task)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		needsMigration = needsMigration || migrate
 		tasks = append(tasks, task)
 	}
-	return tasks, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if needsMigration {
+		if err := s.Save(tasks); err != nil {
+			return nil, fmt.Errorf("migrate task secrets: %w", err)
+		}
+	}
+	return tasks, nil
 }
 
 func (s *SQLiteTaskStore) Save(tasks []core.Task) error {
@@ -84,7 +103,11 @@ func (s *SQLiteTaskStore) Save(tasks []core.Task) error {
 
 	now := time.Now().UnixMilli()
 	for _, task := range tasks {
-		payload, err := json.Marshal(task)
+		storedTask, err := protectTaskSecrets(task)
+		if err != nil {
+			return err
+		}
+		payload, err := json.Marshal(storedTask)
 		if err != nil {
 			return err
 		}

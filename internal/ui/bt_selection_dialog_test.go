@@ -52,6 +52,44 @@ func TestBTSelectionModelSelectedSizeAndDisplay(t *testing.T) {
 	}
 }
 
+func TestBTSelectionModelEditsPriorityLevels(t *testing.T) {
+	model := newBTSelectionModel([]btdownload.File{
+		{Index: 0, Path: "one.bin", Size: 10, Selected: true, Priority: 4},
+		{Index: 2, Path: "two.bin", Size: 20, Selected: false},
+	})
+	if got := model.Value(0, 2); got != "普通" {
+		t.Fatalf("legacy priority label = %v", got)
+	}
+	if err := model.SetPriority([]int{0}, btdownload.FilePriorityLow); err != nil {
+		t.Fatal(err)
+	}
+	if err := model.SetPriority([]int{1}, btdownload.FilePriorityHigh); err != nil {
+		t.Fatal(err)
+	}
+	priorities, err := model.SelectedPriorities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[int]int{0: btdownload.FilePriorityLow, 2: btdownload.FilePriorityHigh}
+	if !reflect.DeepEqual(priorities, want) || model.Value(0, 2) != "低" || model.Value(1, 2) != "高" {
+		t.Fatalf("priorities=%v want=%v", priorities, want)
+	}
+}
+
+func TestBTSelectionModelNormalizesLegacyUncheckedPriority(t *testing.T) {
+	model := newBTSelectionModel([]btdownload.File{{Index: 7, Path: "legacy.bin", Size: 1, Selected: false, Priority: 4}})
+	if err := model.SetChecked(0, true); err != nil {
+		t.Fatal(err)
+	}
+	priorities, err := model.SelectedPriorities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if priorities[7] != btdownload.FilePriorityNormal {
+		t.Fatalf("legacy priority=%d want normal", priorities[7])
+	}
+}
+
 func TestBTOptionsFromSettings(t *testing.T) {
 	settings := config.Settings{
 		DownloadDir:             `D:\Downloads`,

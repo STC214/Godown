@@ -31,6 +31,27 @@ func makeTorrent(t *testing.T, info metainfo.Info, announce string, tiers metain
 	return buffer.Bytes()
 }
 
+type v2InfoFixture struct {
+	Name        string             `bencode:"name"`
+	PieceLength int64              `bencode:"piece length"`
+	MetaVersion int64              `bencode:"meta version"`
+	FileTree    *metainfo.FileTree `bencode:"file tree"`
+}
+
+func makeV2Torrent(t *testing.T, info v2InfoFixture, urlList metainfo.UrlList) []byte {
+	t.Helper()
+	infoBytes, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mi := metainfo.MetaInfo{InfoBytes: infoBytes, UrlList: urlList}
+	var buffer bytes.Buffer
+	if err := mi.Write(&buffer); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
 func writeTorrent(t *testing.T, data []byte) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fixture.torrent")
@@ -88,7 +109,7 @@ func TestResolveSingleFileAndDecode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantFiles := []File{{Index: 0, Path: "bad_name_.mp4", Size: 123, Selected: true, Priority: 4}}
+	wantFiles := []File{{Index: 0, Path: "bad_name_.mp4", Size: 123, Selected: true, Priority: 2}}
 	if !reflect.DeepEqual(files, wantFiles) {
 		t.Fatalf("files=%#v, want %#v", files, wantFiles)
 	}
@@ -147,7 +168,7 @@ func TestResolveMultiFileSkipsPadAndSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	files, _ = FilesFromTask(selected)
-	if files[0].Selected || files[0].Priority != 0 || !files[1].Selected || files[1].Priority != 4 || selected.FileSize != 20 || selected.Stage.FileSize != 20 {
+	if files[0].Selected || files[0].Priority != 0 || !files[1].Selected || files[1].Priority != 2 || selected.FileSize != 20 || selected.Stage.FileSize != 20 {
 		t.Fatalf("selection task=%#v files=%#v", selected, files)
 	}
 	originalFiles, _ := FilesFromTask(task)
@@ -225,8 +246,26 @@ func TestResolveMagnetTimeoutAndCancellation(t *testing.T) {
 }
 
 func TestResolveV2OnlyMagnetUsesResolverAndTrackers(t *testing.T) {
-	magnet := "magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e&tr=https%3A%2F%2Ftracker.test%2Fannounce"
-	metadata := makeTorrent(t, metainfo.Info{Name: "v2-fixture.bin", PieceLength: 16, Length: 32}, "", nil)
+	root := strings.Repeat("r", 32)
+	v2Info := v2InfoFixture{
+		Name:        "v2-fixture",
+		PieceLength: 16,
+		MetaVersion: 2,
+		FileTree: &metainfo.FileTree{Dir: map[string]metainfo.FileTree{
+			"v2-fixture.bin": {File: metainfo.FileTreeFile{Length: 16, PiecesRoot: root}},
+		}},
+	}
+	metadata := makeV2Torrent(t, v2Info, nil)
+	mi, err := loadMetainfoBytes(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2Magnet, err := mi.MagnetV2()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2Magnet.Trackers = []string{"https://tracker.test/announce"}
+	magnet := v2Magnet.String()
 	called := false
 	task, err := Resolve(context.Background(), magnet, Options{
 		DownloadDir: t.TempDir(),
@@ -244,5 +283,13 @@ func TestResolveV2OnlyMagnetUsesResolverAndTrackers(t *testing.T) {
 	}
 	if !called || task.Stage.State[stateSourceType] != "magnet" || !reflect.DeepEqual(trackers, []string{"https://tracker.test/announce"}) {
 		t.Fatalf("v2 magnet was not preserved: task=%#v trackers=%q", task, trackers)
+	}
+	decoded, err := DecodeMetainfo(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := decoded.UnmarshalInfo()
+	if err != nil || !info.HasV2() || info.HasV1() {
+		t.Fatalf("resolved metadata is not v2-only: info=%#v err=%v", info, err)
 	}
 }

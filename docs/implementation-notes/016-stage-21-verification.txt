@@ -1,0 +1,70 @@
+Stage 21 verification record
+Date: 2026-09-05
+
+BASELINE
+Command: git rev-parse HEAD
+Input: repository worktree
+Output: 0e1d4c51d5d350e21ce0217541920a7ac2164b14
+Exit status: 0
+
+MODIFIED BEHAVIOR
+Command: go test -count=1 ./...
+Input: repository packages
+Output: all packages passed, including internal/download/ftp, internal/download/bt, internal/btruntime, internal/core and internal/ui
+Exit status: 0
+
+Command: go test -race -count=1 ./internal/core ./internal/btruntime ./internal/download/bt ./internal/download/ftp ./internal/ui
+Input: Scheduler concurrent editors, BT priority and loopback transfer, malformed FTP URL, real FTPS and unknown SIZE tests
+Output:
+ok ghost-downloader-go-win32/internal/core
+ok ghost-downloader-go-win32/internal/btruntime
+ok ghost-downloader-go-win32/internal/download/bt
+ok ghost-downloader-go-win32/internal/download/ftp
+ok ghost-downloader-go-win32/internal/ui
+Exit status: 0
+
+Command: go vet ./...
+Input: repository packages
+Output: <no output>
+Exit status: 0
+
+Command: .\scripts\package-portable.ps1 -Version 0.1.14-stage21
+Input: Windows x64 GUI, BT runtime, README, user guide and portable update script
+Output:
+BUILD=PASS
+VERSION=0.1.14-stage21
+PACKAGE=PASS
+PORTABLE_ZIP=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.14-stage21-windows-x64-portable.zip
+SHA256=8bae849ef92fea49d4b991e495083c2613264a019c72d98532a90d805da35f94
+Exit status: 0
+
+Command: tar -tf release\GhostDownloader-0.1.14-stage21-windows-x64-portable.zip
+Input: generated portable archive
+Output:
+gd3-bt-runtime.exe
+gd3win.exe
+README.md
+release-manifest.json
+update-portable.ps1
+USER_GUIDE.zh-CN.md
+Exit status: 0
+
+Command: extracted gd3win.exe --version
+Input: gd3win.exe reopened from the portable archive
+Output: 0.1.14-stage21
+Exit status: 0
+
+PATCH
+Command: git apply --reverse --check -- docs/implementation-notes/016-stage-21.patch
+Input: current Stage 21 worktree
+Output: REVERSE_CHECK_EXIT=0
+Exit status: 0
+
+ROLLBACK
+Command: .\scripts\rollback-stage21.ps1 -Root F:\Project\04_Desktop_Dev_Utilities\Downloader-rollback-check-stage21
+Input: detached baseline worktree with docs/implementation-notes/016-stage-21.patch applied
+Output:
+ROLLBACK=PASS
+RESTORED_VERSION=0.1.13-stage20
+ROLLBACK_TREE_MATCH=True
+Exit status: 0

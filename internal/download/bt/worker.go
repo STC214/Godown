@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -364,6 +365,10 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
 	config.DataDir = task.Path
 	config.DefaultStorage = storageImpl
 	config.ListenPort = options.ListenPort
+	if options.testListenHost != nil {
+		config.ListenHost = options.testListenHost
+		config.DisableIPv6 = options.testDisableIPv6
+	}
 	config.NoDHT = !options.EnableDHT
 	config.NoDefaultPortForwarding = !options.EnableUPnP && !options.EnableNATPMP
 	config.EstablishedConnsPerTorrent = options.ConnectionsLimit
@@ -394,6 +399,7 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
 		_ = storageImpl.Close()
 		return nil, fmt.Errorf("build BitTorrent spec: %w", err)
 	}
+	prepareTorrentSpecForClient(spec)
 	if trackers, err := TrackersFromTask(task); err != nil {
 		closeTorrentClient(client, webTransport)
 		_ = storageImpl.Close()
@@ -433,6 +439,7 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
 			return nil, fmt.Errorf("torrent file index %d is unavailable", file.Index)
 		}
 		selected[file.Index] = struct{}{}
+		engineFile.SetPriority(requestedFilePriority(file.Priority, options.SequentialDownload))
 	}
 	if len(selected) == 0 {
 		closeTorrentClient(client, webTransport)
@@ -456,10 +463,6 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
 		result.sequentialCancel = cancel
 		result.sequentialDone = make(chan error, 1)
 		go result.downloadSequentially(sequentialCtx, files)
-	} else {
-		for index := range selected {
-			filesByIndex[index].Download()
-		}
 	}
 	if task.Stage.State[stateSourceType] == "magnet" && options.SaveMagnetTorrentFile {
 		if err := saveMetainfo(filepath.Join(task.Path, task.Title+".torrent"), mi); err != nil {
@@ -470,13 +473,29 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
 	return result, nil
 }
 
+func engineFilePriority(priority int) torrent.PiecePriority {
+	switch priority {
+	case 2:
+		return torrent.PiecePriorityHigh
+	case 3:
+		return torrent.PiecePriorityReadahead
+	default:
+		return torrent.PiecePriorityNormal
+	}
+}
+
+func requestedFilePriority(priority int, sequential bool) torrent.PiecePriority {
+	if sequential {
+		// The active reader requests only the current file's pieces.
+		return torrent.PiecePriorityNone
+	}
+	return engineFilePriority(priority)
+}
+
 func (t *torrentTransfer) downloadSequentially(ctx context.Context, files []File) {
 	var runErr error
 	defer func() { t.sequentialDone <- runErr }()
-	for _, file := range files {
-		if !file.Selected {
-			continue
-		}
+	for _, file := range sequentialFiles(files) {
 		reader := t.filesByIndex[file.Index].NewReader()
 		reader.SetContext(ctx)
 		reader.SetReadahead(2 << 20)
@@ -494,6 +513,19 @@ func (t *torrentTransfer) downloadSequentially(ctx context.Context, files []File
 			return
 		}
 	}
+}
+
+func sequentialFiles(files []File) []File {
+	selected := make([]File, 0, len(files))
+	for _, file := range files {
+		if file.Selected {
+			selected = append(selected, file)
+		}
+	}
+	sort.SliceStable(selected, func(left, right int) bool {
+		return selected[left].Priority > selected[right].Priority
+	})
+	return selected
 }
 
 func (t *torrentTransfer) Snapshot() (transferSnapshot, error) {

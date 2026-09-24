@@ -1,0 +1,257 @@
+diff --git a/.codex-artifacts/stage26-original/README.md b/.codex-artifacts/stage26-modified/README.md
+index 9b9782b..1286b69 100644
+--- a/.codex-artifacts/stage26-original/README.md
++++ b/.codex-artifacts/stage26-modified/README.md
+@@ -2,7 +2,7 @@
+ 
+ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
+ 
+-> 当前实现进度为 Stage 25：补齐 FTP/FTPS 连接空闲超时，将可能等待调度编辑锁的界面操作移至后台，并同步便携包版本文档。此前的任务记录保护、v2-only、运行中 BT 文件选择及快速取消功能继续保留。详见 [Stage 25 修复记录](docs/implementation-notes/020-stage-25-review-fixes.md)。
++> 当前实现进度为 Stage 26：将后台调度操作统一为 FIFO 队列，修复快速连续点击时操作乱序及窗口退出时遗留后台任务的问题。此前的 FTP/FTPS 空闲超时、快速取消、任务记录保护、v2-only 和运行中 BT 文件选择继续保留。详见 [Stage 26 修复记录](docs/implementation-notes/021-stage-26-action-order.md)。
+ 
+ ## 已实现功能
+ 
+@@ -48,7 +48,7 @@ go mod download
+ 
+ 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
+ 
+-当前验证版本为 `0.1.18-stage25`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
++当前验证版本为 `0.1.19-stage26`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+ 
+ ### 工作区清洁约定
+ 
+diff --git a/.codex-artifacts/stage26-original/internal/ui/app.go b/.codex-artifacts/stage26-modified/internal/ui/app.go
+index 24d175d..f7a4888 100644
+--- a/.codex-artifacts/stage26-original/internal/ui/app.go
++++ b/.codex-artifacts/stage26-modified/internal/ui/app.go
+@@ -52,6 +52,8 @@ func Run(options Options) error {
+ 
+ 	app := NewApplicationDispatcher()
+ 	defer app.Clear()
++	schedulerActions := newSerialExecutor()
++	defer schedulerActions.CloseAndWait()
+ 	currentSettings := options.Settings.Normalized(options.Paths)
+ 	taskModel := newTaskTableModel()
+ 	taskModel.SetDarkMode(appwin32.DarkModeEnabled(currentSettings.ThemeMode))
+@@ -98,7 +100,7 @@ func Run(options Options) error {
+ 			return
+ 		}
+ 		statusLabel.SetText("正在切换任务状态…")
+-		go func() {
++		schedulerActions.Submit(func() {
+ 			err := options.Scheduler.TogglePause(taskID)
+ 			app.Post(func() {
+ 				if err != nil {
+@@ -107,7 +109,7 @@ func Run(options Options) error {
+ 				}
+ 				statusLabel.SetText("任务状态已切换。")
+ 			})
+-		}()
++		})
+ 	}
+ 	redownloadSelectedTask := func() {
+ 		taskID := selectedTaskID
+@@ -116,7 +118,7 @@ func Run(options Options) error {
+ 			return
+ 		}
+ 		statusLabel.SetText("正在重新下载任务…")
+-		go func() {
++		schedulerActions.Submit(func() {
+ 			err := options.Scheduler.Redownload(taskID)
+ 			app.Post(func() {
+ 				if err != nil {
+@@ -125,7 +127,7 @@ func Run(options Options) error {
+ 				}
+ 				statusLabel.SetText("任务已重新开始。")
+ 			})
+-		}()
++		})
+ 	}
+ 	editSelectedBTFiles := func() {
+ 		taskID := selectedTaskID
+@@ -162,7 +164,7 @@ func Run(options Options) error {
+ 			}
+ 		}
+ 		statusLabel.SetText("正在应用 BitTorrent 文件选择…")
+-		go func() {
++		schedulerActions.Submit(func() {
+ 			err := options.Scheduler.EditTask(taskID, func(latest core.Task) (core.Task, error) {
+ 				return btdownload.SetFilePriorities(latest, priorities)
+ 			})
+@@ -173,7 +175,7 @@ func Run(options Options) error {
+ 				}
+ 				statusLabel.SetText("BitTorrent 文件选择已更新。")
+ 			})
+-		}()
++		})
+ 	}
+ 	removeSelectedTask := func() {
+ 		if selectedTaskID == "" {
+@@ -407,20 +409,20 @@ func Run(options Options) error {
+ 								Text: "全部开始",
+ 								OnClicked: func() {
+ 									statusLabel.SetText("正在启动全部任务…")
+-									go func() {
++									schedulerActions.Submit(func() {
+ 										options.Scheduler.StartAll()
+ 										app.Post(func() { statusLabel.SetText("所有暂停任务已加入队列。") })
+-									}()
++									})
+ 								},
+ 							},
+ 							PushButton{
+ 								Text: "全部暂停",
+ 								OnClicked: func() {
+ 									statusLabel.SetText("正在暂停全部任务…")
+-									go func() {
++									schedulerActions.Submit(func() {
+ 										options.Scheduler.PauseAll()
+ 										app.Post(func() { statusLabel.SetText("所有活动任务已暂停。") })
+-									}()
++									})
+ 								},
+ 							},
+ 							HSpacer{},
+@@ -628,6 +630,7 @@ func Run(options Options) error {
+ 	// Stop producers before disposing the dispatcher/window. This also waits
+ 	// for BT resume checkpoints and lets the event pump exit deterministically.
+ 	app.Clear()
++	schedulerActions.CloseAndWait()
+ 	if options.BrowserBridge != nil {
+ 		if err := options.BrowserBridge.Stop(context.Background()); err != nil {
+ 			slog.Warn("stop browser bridge during UI shutdown failed", "error", err)
+diff --git a/.codex-artifacts/stage26-original/internal/ui/dispatcher.go b/.codex-artifacts/stage26-modified/internal/ui/dispatcher.go
+index bd27f1a..a3a5204 100644
+--- a/.codex-artifacts/stage26-original/internal/ui/dispatcher.go
++++ b/.codex-artifacts/stage26-modified/internal/ui/dispatcher.go
+@@ -11,6 +11,64 @@ type ApplicationDispatcher struct {
+ 	mainWindow *walk.MainWindow
+ }
+ 
++type serialExecutor struct {
++	mu     sync.Mutex
++	ready  *sync.Cond
++	queue  []func()
++	closed bool
++	done   chan struct{}
++}
++
++func newSerialExecutor() *serialExecutor {
++	executor := &serialExecutor{done: make(chan struct{})}
++	executor.ready = sync.NewCond(&executor.mu)
++	go executor.run()
++	return executor
++}
++
++func (e *serialExecutor) Submit(action func()) bool {
++	if action == nil {
++		return false
++	}
++	e.mu.Lock()
++	defer e.mu.Unlock()
++	if e.closed {
++		return false
++	}
++	e.queue = append(e.queue, action)
++	e.ready.Signal()
++	return true
++}
++
++func (e *serialExecutor) CloseAndWait() {
++	e.mu.Lock()
++	if !e.closed {
++		e.closed = true
++		e.ready.Broadcast()
++	}
++	e.mu.Unlock()
++	<-e.done
++}
++
++func (e *serialExecutor) run() {
++	defer close(e.done)
++	for {
++		e.mu.Lock()
++		for len(e.queue) == 0 && !e.closed {
++			e.ready.Wait()
++		}
++		if len(e.queue) == 0 {
++			e.mu.Unlock()
++			return
++		}
++		action := e.queue[0]
++		e.queue[0] = nil
++		e.queue = e.queue[1:]
++		e.mu.Unlock()
++		action()
++	}
++}
++
+ func NewApplicationDispatcher() *ApplicationDispatcher {
+ 	return &ApplicationDispatcher{}
+ }
+diff --git a/.codex-artifacts/stage26-original/internal/ui/notifications_test.go b/.codex-artifacts/stage26-modified/internal/ui/notifications_test.go
+index b2684b6..44ff4d8 100644
+--- a/.codex-artifacts/stage26-original/internal/ui/notifications_test.go
++++ b/.codex-artifacts/stage26-modified/internal/ui/notifications_test.go
+@@ -1,11 +1,61 @@
+ package ui
+ 
+ import (
++	"reflect"
++	"sync"
+ 	"testing"
+ 
+ 	"ghost-downloader-go-win32/internal/core"
+ )
+ 
++func TestSerialExecutorPreservesSubmissionOrderAndWaits(t *testing.T) {
++	executor := newSerialExecutor()
++	firstEntered := make(chan struct{})
++	releaseFirst := make(chan struct{})
++	var mu sync.Mutex
++	var order []int
++	if !executor.Submit(func() {
++		close(firstEntered)
++		<-releaseFirst
++		mu.Lock()
++		order = append(order, 1)
++		mu.Unlock()
++	}) {
++		t.Fatal("first action rejected")
++	}
++	<-firstEntered
++	for value := 2; value <= 3; value++ {
++		value := value
++		if !executor.Submit(func() {
++			mu.Lock()
++			order = append(order, value)
++			mu.Unlock()
++		}) {
++			t.Fatalf("action %d rejected", value)
++		}
++	}
++	closed := make(chan struct{})
++	go func() {
++		executor.CloseAndWait()
++		close(closed)
++	}()
++	select {
++	case <-closed:
++		t.Fatal("executor closed before queued actions completed")
++	default:
++	}
++	close(releaseFirst)
++	<-closed
++	mu.Lock()
++	defer mu.Unlock()
++	if !reflect.DeepEqual(order, []int{1, 2, 3}) {
++		t.Fatalf("execution order=%v", order)
++	}
++	if executor.Submit(func() {}) {
++		t.Fatal("closed executor accepted action")
++	}
++}
++
+ func TestTaskNotificationTrackerOnlyReportsTerminalTransitions(t *testing.T) {
+ 	tracker := newTaskNotificationTracker([]core.TaskSnapshot{
+ 		{ID: "old-complete", Title: "old.bin", Status: core.StatusCompleted},

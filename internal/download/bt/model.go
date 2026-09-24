@@ -72,6 +72,8 @@ type RuntimeOptions struct {
 	SeedRatioLimitPercent int
 	SeedTimeLimitMinutes  int
 	SaveMagnetTorrentFile bool
+	testListenHost        func(string) string
+	testDisableIPv6       bool
 }
 
 // RuntimeState is the durable transfer checkpoint emitted by Worker.
@@ -170,7 +172,9 @@ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error) 
 	for i := range files {
 		_, files[i].Selected = selected[files[i].Index]
 		if files[i].Selected {
-			files[i].Priority = 4
+			if files[i].Priority < 1 || files[i].Priority > 3 {
+				files[i].Priority = 2
+			}
 			total += files[i].Size
 			selectedCount++
 		} else {
@@ -277,7 +281,7 @@ func filesFromInfo(info metainfo.Info) ([]File, int64, error) {
 		if metaFile.Length < 0 {
 			return nil, 0, fmt.Errorf("torrent file %d has negative size", index)
 		}
-		files = append(files, File{Index: index, Path: cleanPath, Size: metaFile.Length, Selected: true, Priority: 4})
+		files = append(files, File{Index: index, Path: cleanPath, Size: metaFile.Length, Selected: true, Priority: 2})
 		total += metaFile.Length
 	}
 	if len(files) == 0 {

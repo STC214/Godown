@@ -1,0 +1,1276 @@
+diff --git a/GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md b/GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md
+index dd4cb20..ae8664a 100644
+--- a/GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md
++++ b/GHOST_DOWNLOADER_GO_WIN32_BLUEPRINT.md
+@@ -2,7 +2,7 @@
+ 
+ 本文档是后续重构的基准。目标不是机械翻译 Python/PySide6 代码，而是在 Windows 上用 Go + Win32 做一个资源占用更低、分发更干净、体验足够现代的下载器。实现时需要持续对照 Ghost-Downloader-3 当前源码，确保关键行为一致，UI 则做功能完整和视觉近似，不追求 PySide6/qfluentwidgets 的逐像素复刻。
+ 
+-> 实现状态（2026-09-05）：蓝图已推进至 Stage 20，当前验证版本为 `0.1.13-stage20`。HTTP、FTP/FTPS、M3U8、BitTorrent v1/v2 Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；BT 任务支持创建后重新选择文件，并通过受控 runtime 重启保存检查点和恢复任务。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
++> 实现状态（2026-09-05）：蓝图已推进至 Stage 21，当前验证版本为 `0.1.14-stage21`。HTTP、FTP/FTPS、M3U8、BitTorrent v1/v2 Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；BT 任务支持创建后重新选择文件并设置低/普通/高优先级，通过受控且串行的 runtime 重启保存检查点和恢复任务。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/016-stage-21-review-fixes.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
+ 
+ ## 0. 本地对照仓库
+ 
+diff --git a/README.md b/README.md
+index b9885c8..ec568b2 100644
+--- a/README.md
++++ b/README.md
+@@ -2,7 +2,7 @@
+ 
+ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版本提供 HTTP(S)、M3U8、BitTorrent/Magnet 下载，以及本地浏览器桥接。
+ 
+-> 当前实现进度为 Stage 20：新增 FTP/FTPS 断点续传、BT v2-only Magnet，以及运行中重新选择 BT 文件并自动恢复任务。详见 [Stage 20 实现记录](docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md)。
++> 当前实现进度为 Stage 21：完成 Stage 20 功能复审修复，补齐 BT 文件低/普通/高优先级、并发编辑保护、真实 v2-only/FTPS 测试，以及未知文件大小 FTP 兼容。详见 [Stage 21 实现记录](docs/implementation-notes/016-stage-21-review-fixes.md)。
+ 
+ ## 已实现功能
+ 
+@@ -10,7 +10,7 @@ Ghost Downloader 3 是面向 Windows 的桌面下载器重写项目。当前版
+ - FTP、隐式 FTPS（`ftps://`）和显式 FTPS（`ftpes://`）单文件下载、重试、限速与断点续传。
+ - M3U8 解析、外部运行时调用、下载与合并。
+ - BitTorrent：本地/远程 `.torrent`、`file://`、v1 `btih`、v2 `btmh` 及混合 Magnet。
+-- BT 多文件选择、运行中改选、Tracker 合并、校验块断点续传及完成后做种。
++- BT 多文件选择、低/普通/高文件优先级、运行中改选、Tracker 合并、校验块断点续传及完成后做种。
+ - BT 分享率/做种时长限制、DHT、端口映射偏好和连接数设置。
+ - 任务持久化、并发调度、托盘、通知及浏览器桥接。
+ - HTTP(S)/SOCKS5 代理、自定义请求头与 Cookie。
+@@ -48,7 +48,7 @@ go mod download
+ 
+ 脚本只保留 `release/GhostDownloader-<version>-windows-x64-portable.zip` 和对应的 SHA-256 文件；`release-manifest.json` 位于 ZIP 内。便携包不写注册表，解压后直接运行。应用可下载匹配的 ZIP 与 `.sha256` Release 资产，校验后退出、覆盖、失败回滚并重新启动。
+ 
+-当前验证版本为 `0.1.13-stage20`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
++当前验证版本为 `0.1.14-stage21`，对应 Windows x64 便携 ZIP；主程序和 BT 运行时必须从同一解压目录运行。
+ 
+ ### 工作区清洁约定
+ 
+@@ -91,6 +91,6 @@ Stage 15 验证结果：项目语句覆盖率为 54.1%；`cmd/gd3win`、`cmd/gd3
+ ## 当前边界
+ 
+ - FTP 系列地址当前支持单文件下载，不递归下载远程目录；FTP 代理支持直连或 SOCKS5。
+-- 修改运行中 BT 文件选择时，程序会短暂停止 BT runtime、保存最新检查点、应用选择后自动恢复，以避免运行时状态竞争。
++- 修改运行中 BT 文件选择和优先级时，程序会短暂停止 BT runtime、保存最新检查点、串行应用编辑后自动恢复，以避免运行时状态竞争。
+ - BT 的 HTTP 元数据、HTTP/WebSocket Tracker 与 WebSeed 遵循代理设置；原生 Peer、DHT 和 UDP Tracker 使用 BT 引擎网络栈。
+ - LSD、UPnP 与 NAT-PMP 受当前 BT 引擎公开接口约束，详见 [Stage 5 实现记录](docs/implementation-notes/005-stage-5-bittorrent.md)。
+diff --git a/docs/DEVELOPMENT.zh-CN.md b/docs/DEVELOPMENT.zh-CN.md
+index d03e3bf..ede5d78 100644
+--- a/docs/DEVELOPMENT.zh-CN.md
++++ b/docs/DEVELOPMENT.zh-CN.md
+@@ -100,7 +100,7 @@ BT 进入 `seeding` 后设置 `UsesSlot=false`，因此做种任务不会阻塞
+ 
+ FTP Worker 使用独立 `.part` 文件恢复下载：`ftp://` 为普通 FTP，`ftps://` 为默认 990 端口的隐式 TLS，`ftpes://` 为默认 21 端口并通过 `AUTH TLS` 升级的显式 TLS。任务 URL 会移除凭据，连接信息保存在任务阶段状态；代理仅接受 SOCKS5。完成后 `.part` 原子改名为目标文件。
+ 
+-`Scheduler.EditTask` 是运行中修改任务配置的统一边界。它先取消当前 Worker 并等待其最终检查点，再对最新任务副本应用编辑；此前处于活动状态的任务会重新加入调度，明确暂停的任务保持暂停。BT 文件改选通过该接口更新 `files` 状态，避免 GUI 直接修改运行时状态。
++`Scheduler.EditTask` 是运行中修改任务配置的统一边界。它先取消当前 Worker 并等待其最终检查点，再对最新任务副本串行应用编辑；并发编辑不会互相覆盖，停止中的调度器不会重新启动任务。此前处于活动状态的任务会重新加入调度，明确暂停的任务保持暂停。BT 文件改选和优先级调整通过该接口更新 `files` 状态，避免 GUI 直接修改运行时状态。
+ 
+ ## 7. BT 运行时边界
+ 
+@@ -133,7 +133,7 @@ Stage 15 的自动化基线为：总语句覆盖率 54.1%；`cmd/gd3win` 51.6%
+ 
+ 命令入口使用小范围可替换函数隔离 GUI 消息框和应用启动，以验证成功、重复启动、普通错误与 panic 退出码。BT runtime 的 `run`、`runWorker` 和 `encodeResult` 接受 `io.Reader` / `io.Writer`，测试不得替换进程级标准流或启动真实公网任务。`internal/app` 的来源路由测试使用 `httptest` 回环服务器。
+ 
+-BT 本地集成测试使用动态生成的 bencode torrent 与 `httptest` Range WebSeed，不依赖公共 swarm：
++BT 本地集成测试使用动态生成的 bencode torrent 与 `httptest` Range WebSeed，不依赖公共 swarm。测试专用 torrent 客户端固定监听 `127.0.0.1` 并关闭 IPv6、DHT 和自动端口映射，避免自动测试触发 Windows 防火墙公网访问提示；正式程序仍按用户的 BT 设置联网：
+ 
+ ```powershell
+ go test ./internal/download/bt `
+@@ -154,8 +154,8 @@ Remove-Item Env:\GD3_BT_RUNTIME_TEST_PATH
+ ### 便携包验收
+ 
+ ```powershell
+-.\scripts\package-portable.ps1 -Version 0.1.13-stage20
+-Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.13-stage20-windows-x64-portable.zip
++.\scripts\package-portable.ps1 -Version 0.1.14-stage21
++Get-FileHash -Algorithm SHA256 .\release\GhostDownloader-0.1.14-stage21-windows-x64-portable.zip
+ ```
+ 
+ 发布目录只保留 ZIP 与同名 `.sha256`；展开目录由脚本清理。验收时还要逐项核对 ZIP 内 `release-manifest.json` 的大小和 SHA-256，并确认主程序、BT runtime、README、用户指南和便携更新脚本均在包内。
+diff --git a/docs/USER_GUIDE.zh-CN.md b/docs/USER_GUIDE.zh-CN.md
+index 3538bba..fdde7b6 100644
+--- a/docs/USER_GUIDE.zh-CN.md
++++ b/docs/USER_GUIDE.zh-CN.md
+@@ -1,6 +1,6 @@
+ # Ghost Downloader 3 用户指南
+ 
+-> 适用于 `0.1.13-stage20` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
++> 适用于 `0.1.14-stage21` Windows x64 便携版。解压 ZIP 后直接运行 `gd3win.exe`，并始终让 `gd3-bt-runtime.exe` 与主程序位于同一目录。
+ 
+ ## 1. 界面概览
+ 
+@@ -33,7 +33,7 @@
+ 
+ 支持 `ftp://` 普通 FTP、`ftps://` 隐式 TLS 和 `ftpes://` 显式 TLS 单文件地址。地址可包含用户名与密码，例如 `ftp://user:password@host/path/file.zip`；任务列表和持久任务 URL 会移除凭据。未填写账户时使用匿名登录。
+ 
+-FTP 下载使用 `.part` 文件断点续传；服务器不接受 REST 恢复时会自动从头重试。全局限速和重试次数同样生效。当前仅支持单文件，不递归下载远程目录；代理设置为空时直连，设置代理时仅支持 SOCKS5/SOCKS5H。
++FTP 下载使用 `.part` 文件断点续传；服务器不接受 REST 恢复时会自动从头重试。服务器不支持 SIZE 命令时仍可按未知大小下载。输出文件名会按 Windows 规则清理非法字符和保留设备名。全局限速和重试次数同样生效。当前仅支持单文件，不递归下载远程目录；代理设置为空时直连，设置代理时仅支持 SOCKS5/SOCKS5H。
+ 
+ ### M3U8
+ 
+@@ -54,16 +54,17 @@ BT 功能由同目录的 `gd3-bt-runtime.exe` 提供。复制或安装应用时
+ 
+ ## 3. BT 文件选择
+ 
+-解析 torrent 后会显示文件路径、大小和选择状态。
++解析 torrent 后会显示文件路径、大小、选择状态和优先级。
+ 
+ - **全选**：选择全部可下载文件。
+ - **清空**：清空选择。
+ - **反选**：反转当前选择。
++- **低 / 普通 / 高**：为当前选中的列表行设置实际下载优先级；新选中的文件默认为普通优先级。
+ - 底部汇总显示所选文件数与总大小。
+ 
+ 至少需要选择一个文件。Padding 文件不会出现在普通选择列表中；共享边界块所需的 padding 或未选文件字节会写入任务自有的隐藏目录，不计入所选文件进度。
+ 
+-任务开始后仍可选中 BT 任务并选择 **BT 文件**。程序会暂停对应 BT runtime、保存最新校验进度、应用新的文件选择，然后自动恢复此前处于活动状态的任务；原本手动暂停的任务保持暂停。
++任务开始后仍可选中 BT 任务并选择 **BT 文件**。程序会暂停对应 BT runtime、保存最新校验进度、串行应用新的文件选择和优先级，然后自动恢复此前处于活动状态的任务；原本手动暂停的任务保持暂停。
+ 
+ ## 4. 任务状态
+ 
+@@ -137,7 +138,7 @@ BT 做种不占普通下载并发槽位。暂停 BT 任务时，应用只把哈
+ 便携发布同时提供 ZIP 和同名 `.sha256`。需要手动校验时可在 PowerShell 中执行：
+ 
+ ```powershell
+-Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.13-stage20-windows-x64-portable.zip
++Get-FileHash -Algorithm SHA256 .\GhostDownloader-0.1.14-stage21-windows-x64-portable.zip
+ ```
+ 
+ 将命令输出与 ZIP 同目录的 `.sha256` 文件比较；两者必须完全一致。外部校验文件是当前发布包哈希的权威记录。
+diff --git a/docs/implementation-notes/016-stage-21-review-fixes.md b/docs/implementation-notes/016-stage-21-review-fixes.md
+new file mode 100644
+index 0000000..5d645bb
+--- /dev/null
++++ b/docs/implementation-notes/016-stage-21-review-fixes.md
+@@ -0,0 +1,31 @@
++# Stage 21：Stage 20 功能复审修复
++
++日期：2026-09-05
++
++## 修复内容
++
++- FTP 地址解析对畸形 URL 返回错误，不再解引用空解析结果。
++- FTP 输出文件名按 Windows 规则替换非法字符、清理尾随点和空格，并规避保留设备名。
++- FTP 服务器不支持 `SIZE` 时以未知大小继续传输；其他协议错误仍会终止任务。
++- BT 文件选择窗口支持低、普通、高三级实际下载优先级，新任务默认普通优先级。
++- `Scheduler.EditTask` 串行处理同一时刻的编辑，并在停止阶段拒绝重新应用或启动任务，避免旧副本覆盖较新的检查点。
++- BT 自动测试客户端仅监听回环接口，同时关闭 IPv6、DHT 和自动端口映射；正式程序网络配置不变。
++
++## 测试补强
++
++- 使用真实 BEP 52 v2-only file tree 生成元数据，再由其真实哈希生成 `btmh` Magnet，验证 v2-only 解析与持久化。
++- 使用临时 ECDSA 证书启动回环隐式 FTPS 控制通道和加密数据通道，完成解析与下载。
++- 使用回环 FTP 夹具验证不支持 `SIZE` 时仍可完成未知大小文件下载。
++- 覆盖 BT 三级优先级持久化、引擎映射、进度裁剪、UI 操作和并发任务编辑。
++
++## 验证
++
++```powershell
++go test -count=1 ./...
++go vet ./...
++.\scripts\package-portable.ps1 -Version 0.1.14-stage21
++```
++
++发布物仅包含 Windows x64 便携 ZIP 和同名 SHA-256 文件，不生成安装包。
++
++验证结果：全量测试、关键包竞态检测、静态检查和便携构建退出码均为 `0`；`0.1.14-stage21` 便携包 SHA-256 为 `8bae849ef92fea49d4b991e495083c2613264a019c72d98532a90d805da35f94`。
+diff --git a/internal/btruntime/client.go b/internal/btruntime/client.go
+index bd9f19c..58c1471 100644
+--- a/internal/btruntime/client.go
++++ b/internal/btruntime/client.go
+@@ -24,6 +24,13 @@ import (
+ 
+ const stateFiles = "files"
+ 
++const (
++	FilePriorityNone = iota
++	FilePriorityLow
++	FilePriorityNormal
++	FilePriorityHigh
++)
++
+ // Options is serialized to gd3-bt-runtime for source resolution.
+ type Options struct {
+ 	DownloadDir string
+@@ -220,25 +227,48 @@ func FilesFromTask(task core.Task) ([]File, error) {
+ }
+ 
+ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error) {
++	priorities := make(map[int]int, len(selectedIndexes))
+ 	files, err := FilesFromTask(task)
+ 	if err != nil {
+ 		return core.Task{}, err
+ 	}
+-	selected := make(map[int]struct{}, len(selectedIndexes))
++	current := make(map[int]int, len(files))
++	for _, file := range files {
++		current[file.Index] = normalizeFilePriority(file.Priority, file.Selected)
++	}
+ 	for _, index := range selectedIndexes {
+-		selected[index] = struct{}{}
++		priority := current[index]
++		if priority == FilePriorityNone {
++			priority = FilePriorityNormal
++		}
++		priorities[index] = priority
++	}
++	return SetFilePriorities(task, priorities)
++}
++
++// SetFilePriorities updates selection and low/normal/high priority in one
++// persisted operation. Missing indexes are treated as not selected.
++func SetFilePriorities(task core.Task, priorities map[int]int) (core.Task, error) {
++	files, err := FilesFromTask(task)
++	if err != nil {
++		return core.Task{}, err
+ 	}
+-	if len(selected) == 0 {
++	if len(priorities) == 0 {
+ 		return core.Task{}, errors.New("at least one BitTorrent file must be selected")
+ 	}
+ 	var total int64
+ 	var received int64
+ 	var count int
+ 	for index := range files {
+-		_, files[index].Selected = selected[files[index].Index]
++		priority, exists := priorities[files[index].Index]
++		if exists && (priority < FilePriorityLow || priority > FilePriorityHigh) {
++			return core.Task{}, fmt.Errorf("invalid BitTorrent priority %d for file index %d", priority, files[index].Index)
++		}
++		files[index].Selected = exists
+ 		if files[index].Selected {
+-			files[index].Priority = 4
++			files[index].Priority = priority
+ 			total += files[index].Size
++			files[index].Downloaded = clampDownloaded(files[index].Downloaded, files[index].Size)
+ 			received += files[index].Downloaded
+ 			count++
+ 		} else {
+@@ -269,6 +299,26 @@ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error)
+ 	return task, nil
+ }
+ 
++func normalizeFilePriority(priority int, selected bool) int {
++	if !selected {
++		return FilePriorityNone
++	}
++	if priority >= FilePriorityLow && priority <= FilePriorityHigh {
++		return priority
++	}
++	return FilePriorityNormal
++}
++
++func clampDownloaded(downloaded, size int64) int64 {
++	if downloaded < 0 {
++		return 0
++	}
++	if downloaded > size {
++		return size
++	}
++	return downloaded
++}
++
+ func selectionProgress(received, total int64) float64 {
+ 	if total <= 0 {
+ 		return 0
+diff --git a/internal/btruntime/client_test.go b/internal/btruntime/client_test.go
+index 77f26df..a10f440 100644
+--- a/internal/btruntime/client_test.go
++++ b/internal/btruntime/client_test.go
+@@ -1,6 +1,7 @@
+ package btruntime
+ 
+ import (
++	"math"
+ 	"reflect"
+ 	"testing"
+ 
+@@ -50,3 +51,23 @@ func TestSetSelectedFilesClonesTaskState(t *testing.T) {
+ 		t.Fatal("selection mutated the source task state")
+ 	}
+ }
++
++func TestSetFilePrioritiesPersistsLevelsAndClampsProgress(t *testing.T) {
++	task := core.Task{Stage: core.Stage{State: map[string]string{
++		stateFiles: `[{"index":0,"path":"one.bin","size":10,"selected":true,"priority":4,"downloadedBytes":20},{"index":2,"path":"two.bin","size":20,"selected":true,"priority":4}]`,
++	}}}
++	updated, err := SetFilePriorities(task, map[int]int{0: FilePriorityLow, 2: FilePriorityHigh})
++	if err != nil {
++		t.Fatal(err)
++	}
++	files, err := FilesFromTask(updated)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if files[0].Priority != FilePriorityLow || files[1].Priority != FilePriorityHigh || files[0].Downloaded != 10 || updated.Received != 10 || math.Abs(updated.Progress-100.0/3.0) > 0.000001 {
++		t.Fatalf("priority update mismatch: task=%#v files=%#v", updated, files)
++	}
++	if _, err := SetFilePriorities(task, map[int]int{0: 99}); err == nil {
++		t.Fatal("invalid priority accepted")
++	}
++}
+diff --git a/internal/core/scheduler.go b/internal/core/scheduler.go
+index 267b553..6b526aa 100644
+--- a/internal/core/scheduler.go
++++ b/internal/core/scheduler.go
+@@ -11,6 +11,7 @@ import (
+ 
+ type Scheduler struct {
+ 	mu       sync.Mutex
++	editMu   sync.Mutex
+ 	tasks    map[string]*Task
+ 	order    []string
+ 	running  map[string]*runningTask
+@@ -291,6 +292,8 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
+ 	if edit == nil {
+ 		return errors.New("task editor is nil")
+ 	}
++	s.editMu.Lock()
++	defer s.editMu.Unlock()
+ 	s.mu.Lock()
+ 	task := s.tasks[taskID]
+ 	if task == nil {
+@@ -315,17 +318,18 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
+ 	}
+ 
+ 	s.mu.Lock()
++	defer s.mu.Unlock()
++	if s.stopping {
++		return errors.New("scheduler stopping")
++	}
+ 	task = s.tasks[taskID]
+ 	if task == nil {
+-		s.mu.Unlock()
+ 		return errors.New("task not found")
+ 	}
+ 	original := cloneTask(*task)
+-	s.mu.Unlock()
+ 
+ 	edited, err := edit(original)
+ 	if err != nil {
+-		s.mu.Lock()
+ 		if current := s.tasks[taskID]; current != nil && resume {
+ 			current.Status = StatusWaiting
+ 			current.Stage.Status = StatusWaiting
+@@ -333,7 +337,6 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
+ 			s.scheduleSaveLocked()
+ 			s.emitLocked()
+ 		}
+-		s.mu.Unlock()
+ 		return err
+ 	}
+ 	edited.ID = original.ID
+@@ -351,8 +354,6 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
+ 		edited.Stage.Status = StatusPaused
+ 	}
+ 
+-	s.mu.Lock()
+-	defer s.mu.Unlock()
+ 	if s.tasks[taskID] == nil {
+ 		return errors.New("task not found")
+ 	}
+diff --git a/internal/core/scheduler_test.go b/internal/core/scheduler_test.go
+index a67b436..199eb77 100644
+--- a/internal/core/scheduler_test.go
++++ b/internal/core/scheduler_test.go
+@@ -103,6 +103,56 @@ func TestSchedulerEditTaskRestartsActiveWorkerWithLatestState(t *testing.T) {
+ 	}
+ }
+ 
++func TestSchedulerEditTaskSerializesConcurrentEditors(t *testing.T) {
++	task := NewTask("fake", "example.bin", "https://example.test/example.bin", t.TempDir(), 10, NewStage("fake", "https://example.test/example.bin", 10, 1, 0, true, nil, ""))
++	task.Status = StatusPaused
++	task.Stage.Status = StatusPaused
++	task.Stage.State = map[string]string{}
++	scheduler := NewScheduler(NewRegistry(), &memoryTaskStore{tasks: []Task{task}}, 1)
++	if err := scheduler.Load(); err != nil {
++		t.Fatal(err)
++	}
++
++	firstEntered := make(chan struct{})
++	releaseFirst := make(chan struct{})
++	firstDone := make(chan error, 1)
++	go func() {
++		firstDone <- scheduler.EditTask(task.ID, func(current Task) (Task, error) {
++			close(firstEntered)
++			<-releaseFirst
++			current.Stage.State["first"] = "saved"
++			return current, nil
++		})
++	}()
++	<-firstEntered
++
++	secondEntered := make(chan struct{})
++	secondDone := make(chan error, 1)
++	go func() {
++		secondDone <- scheduler.EditTask(task.ID, func(current Task) (Task, error) {
++			close(secondEntered)
++			current.Stage.State["second"] = current.Stage.State["first"]
++			return current, nil
++		})
++	}()
++	select {
++	case <-secondEntered:
++		t.Fatal("second editor entered before first editor completed")
++	case <-time.After(50 * time.Millisecond):
++	}
++	close(releaseFirst)
++	if err := <-firstDone; err != nil {
++		t.Fatal(err)
++	}
++	if err := <-secondDone; err != nil {
++		t.Fatal(err)
++	}
++	updated, ok := scheduler.Task(task.ID)
++	if !ok || updated.Stage.State["first"] != "saved" || updated.Stage.State["second"] != "saved" {
++		t.Fatalf("concurrent edits were not composed: %#v", updated.Stage.State)
++	}
++}
++
+ type reportingWorker struct {
+ 	started chan string
+ 	update  ProgressUpdate
+diff --git a/internal/download/bt/model.go b/internal/download/bt/model.go
+index 9f7a516..7e5411d 100644
+--- a/internal/download/bt/model.go
++++ b/internal/download/bt/model.go
+@@ -72,6 +72,8 @@ type RuntimeOptions struct {
+ 	SeedRatioLimitPercent int
+ 	SeedTimeLimitMinutes  int
+ 	SaveMagnetTorrentFile bool
++	testListenHost        func(string) string
++	testDisableIPv6       bool
+ }
+ 
+ // RuntimeState is the durable transfer checkpoint emitted by Worker.
+@@ -170,7 +172,9 @@ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error)
+ 	for i := range files {
+ 		_, files[i].Selected = selected[files[i].Index]
+ 		if files[i].Selected {
+-			files[i].Priority = 4
++			if files[i].Priority < 1 || files[i].Priority > 3 {
++				files[i].Priority = 2
++			}
+ 			total += files[i].Size
+ 			selectedCount++
+ 		} else {
+@@ -277,7 +281,7 @@ func filesFromInfo(info metainfo.Info) ([]File, int64, error) {
+ 		if metaFile.Length < 0 {
+ 			return nil, 0, fmt.Errorf("torrent file %d has negative size", index)
+ 		}
+-		files = append(files, File{Index: index, Path: cleanPath, Size: metaFile.Length, Selected: true, Priority: 4})
++		files = append(files, File{Index: index, Path: cleanPath, Size: metaFile.Length, Selected: true, Priority: 2})
+ 		total += metaFile.Length
+ 	}
+ 	if len(files) == 0 {
+diff --git a/internal/download/bt/parse_test.go b/internal/download/bt/parse_test.go
+index 27999c6..e87bd31 100644
+--- a/internal/download/bt/parse_test.go
++++ b/internal/download/bt/parse_test.go
+@@ -31,6 +31,27 @@ func makeTorrent(t *testing.T, info metainfo.Info, announce string, tiers metain
+ 	return buffer.Bytes()
+ }
+ 
++type v2InfoFixture struct {
++	Name        string             `bencode:"name"`
++	PieceLength int64              `bencode:"piece length"`
++	MetaVersion int64              `bencode:"meta version"`
++	FileTree    *metainfo.FileTree `bencode:"file tree"`
++}
++
++func makeV2Torrent(t *testing.T, info v2InfoFixture) []byte {
++	t.Helper()
++	infoBytes, err := bencode.Marshal(info)
++	if err != nil {
++		t.Fatal(err)
++	}
++	mi := metainfo.MetaInfo{InfoBytes: infoBytes}
++	var buffer bytes.Buffer
++	if err := mi.Write(&buffer); err != nil {
++		t.Fatal(err)
++	}
++	return buffer.Bytes()
++}
++
+ func writeTorrent(t *testing.T, data []byte) string {
+ 	t.Helper()
+ 	path := filepath.Join(t.TempDir(), "fixture.torrent")
+@@ -88,7 +109,7 @@ func TestResolveSingleFileAndDecode(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	wantFiles := []File{{Index: 0, Path: "bad_name_.mp4", Size: 123, Selected: true, Priority: 4}}
++	wantFiles := []File{{Index: 0, Path: "bad_name_.mp4", Size: 123, Selected: true, Priority: 2}}
+ 	if !reflect.DeepEqual(files, wantFiles) {
+ 		t.Fatalf("files=%#v, want %#v", files, wantFiles)
+ 	}
+@@ -147,7 +168,7 @@ func TestResolveMultiFileSkipsPadAndSelection(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	files, _ = FilesFromTask(selected)
+-	if files[0].Selected || files[0].Priority != 0 || !files[1].Selected || files[1].Priority != 4 || selected.FileSize != 20 || selected.Stage.FileSize != 20 {
++	if files[0].Selected || files[0].Priority != 0 || !files[1].Selected || files[1].Priority != 2 || selected.FileSize != 20 || selected.Stage.FileSize != 20 {
+ 		t.Fatalf("selection task=%#v files=%#v", selected, files)
+ 	}
+ 	originalFiles, _ := FilesFromTask(task)
+@@ -225,8 +246,26 @@ func TestResolveMagnetTimeoutAndCancellation(t *testing.T) {
+ }
+ 
+ func TestResolveV2OnlyMagnetUsesResolverAndTrackers(t *testing.T) {
+-	magnet := "magnet:?xt=urn:btmh:1220caf1e1c30e81cb361b9ee167c4aa64228a7fa4fa9f6105232b28ad099f3a302e&tr=https%3A%2F%2Ftracker.test%2Fannounce"
+-	metadata := makeTorrent(t, metainfo.Info{Name: "v2-fixture.bin", PieceLength: 16, Length: 32}, "", nil)
++	root := strings.Repeat("r", 32)
++	v2Info := v2InfoFixture{
++		Name:        "v2-fixture",
++		PieceLength: 16,
++		MetaVersion: 2,
++		FileTree: &metainfo.FileTree{Dir: map[string]metainfo.FileTree{
++			"v2-fixture.bin": {File: metainfo.FileTreeFile{Length: 16, PiecesRoot: root}},
++		}},
++	}
++	metadata := makeV2Torrent(t, v2Info)
++	mi, err := loadMetainfoBytes(metadata)
++	if err != nil {
++		t.Fatal(err)
++	}
++	v2Magnet, err := mi.MagnetV2()
++	if err != nil {
++		t.Fatal(err)
++	}
++	v2Magnet.Trackers = []string{"https://tracker.test/announce"}
++	magnet := v2Magnet.String()
+ 	called := false
+ 	task, err := Resolve(context.Background(), magnet, Options{
+ 		DownloadDir: t.TempDir(),
+@@ -245,4 +284,12 @@ func TestResolveV2OnlyMagnetUsesResolverAndTrackers(t *testing.T) {
+ 	if !called || task.Stage.State[stateSourceType] != "magnet" || !reflect.DeepEqual(trackers, []string{"https://tracker.test/announce"}) {
+ 		t.Fatalf("v2 magnet was not preserved: task=%#v trackers=%q", task, trackers)
+ 	}
++	decoded, err := DecodeMetainfo(task)
++	if err != nil {
++		t.Fatal(err)
++	}
++	info, err := decoded.UnmarshalInfo()
++	if err != nil || !info.HasV2() || info.HasV1() {
++		t.Fatalf("resolved metadata is not v2-only: info=%#v err=%v", info, err)
++	}
+ }
+diff --git a/internal/download/bt/worker.go b/internal/download/bt/worker.go
+index b64c4e9..26e909f 100644
+--- a/internal/download/bt/worker.go
++++ b/internal/download/bt/worker.go
+@@ -364,6 +364,10 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
+ 	config.DataDir = task.Path
+ 	config.DefaultStorage = storageImpl
+ 	config.ListenPort = options.ListenPort
++	if options.testListenHost != nil {
++		config.ListenHost = options.testListenHost
++		config.DisableIPv6 = options.testDisableIPv6
++	}
+ 	config.NoDHT = !options.EnableDHT
+ 	config.NoDefaultPortForwarding = !options.EnableUPnP && !options.EnableNATPMP
+ 	config.EstablishedConnsPerTorrent = options.ConnectionsLimit
+@@ -433,6 +437,7 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
+ 			return nil, fmt.Errorf("torrent file index %d is unavailable", file.Index)
+ 		}
+ 		selected[file.Index] = struct{}{}
++		engineFile.SetPriority(engineFilePriority(file.Priority))
+ 	}
+ 	if len(selected) == 0 {
+ 		closeTorrentClient(client, webTransport)
+@@ -456,10 +461,6 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
+ 		result.sequentialCancel = cancel
+ 		result.sequentialDone = make(chan error, 1)
+ 		go result.downloadSequentially(sequentialCtx, files)
+-	} else {
+-		for index := range selected {
+-			filesByIndex[index].Download()
+-		}
+ 	}
+ 	if task.Stage.State[stateSourceType] == "magnet" && options.SaveMagnetTorrentFile {
+ 		if err := saveMetainfo(filepath.Join(task.Path, task.Title+".torrent"), mi); err != nil {
+@@ -470,6 +471,17 @@ func newTorrentTransfer(ctx context.Context, task core.Task, files []File, optio
+ 	return result, nil
+ }
+ 
++func engineFilePriority(priority int) torrent.PiecePriority {
++	switch priority {
++	case 2:
++		return torrent.PiecePriorityHigh
++	case 3:
++		return torrent.PiecePriorityReadahead
++	default:
++		return torrent.PiecePriorityNormal
++	}
++}
++
+ func (t *torrentTransfer) downloadSequentially(ctx context.Context, files []File) {
+ 	var runErr error
+ 	defer func() { t.sequentialDone <- runErr }()
+diff --git a/internal/download/bt/worker_test.go b/internal/download/bt/worker_test.go
+index 97e2c0b..e96e1b3 100644
+--- a/internal/download/bt/worker_test.go
++++ b/internal/download/bt/worker_test.go
+@@ -33,6 +33,29 @@ type fakeTransfer struct {
+ 	closed    bool
+ }
+ 
++func TestEngineFilePriorityMapsPersistedLevels(t *testing.T) {
++	if engineFilePriority(1) != torrent.PiecePriorityNormal ||
++		engineFilePriority(2) != torrent.PiecePriorityHigh ||
++		engineFilePriority(3) != torrent.PiecePriorityReadahead ||
++		engineFilePriority(4) != torrent.PiecePriorityNormal {
++		t.Fatal("persisted BitTorrent priority mapping changed")
++	}
++}
++
++func loopbackClientConfig(config *torrent.ClientConfig) {
++	config.ListenHost = func(string) string { return "127.0.0.1" }
++	config.DisableIPv6 = true
++	config.NoDHT = true
++	config.NoDefaultPortForwarding = true
++}
++
++func loopbackRuntimeOptions(task core.Task) RuntimeOptions {
++	options := RuntimeOptionsFromTask(task)
++	options.testListenHost = func(string) string { return "127.0.0.1" }
++	options.testDisableIPv6 = true
++	return options
++}
++
+ func (f *fakeTransfer) Snapshot() (transferSnapshot, error) {
+ 	f.mu.Lock()
+ 	defer f.mu.Unlock()
+@@ -271,6 +294,7 @@ func TestNewClientFallsBackWhenConfiguredPortIsBusy(t *testing.T) {
+ 	}
+ 	newConfig := func() *torrent.ClientConfig {
+ 		config := torrent.NewDefaultClientConfig()
++		loopbackClientConfig(config)
+ 		config.DataDir = t.TempDir()
+ 		config.ListenPort = port
+ 		config.NoDHT = true
+@@ -339,7 +363,7 @@ func TestTorrentTransferDownloadsFromLocalWebseedAndResumes(t *testing.T) {
+ 		t.Helper()
+ 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+ 		defer cancel()
+-		active, err := newTorrentTransfer(ctx, task, files, RuntimeOptionsFromTask(task))
++		active, err := newTorrentTransfer(ctx, task, files, loopbackRuntimeOptions(task))
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -452,7 +476,7 @@ func TestTorrentTransferResumesVerifiedPartialPieces(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 
+-	first, err := newTorrentTransfer(context.Background(), task, files, RuntimeOptionsFromTask(task))
++	first, err := newTorrentTransfer(context.Background(), task, files, loopbackRuntimeOptions(task))
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -481,7 +505,7 @@ func TestTorrentTransferResumesVerifiedPartialPieces(t *testing.T) {
+ 	}
+ 
+ 	phase.Store(2)
+-	second, err := newTorrentTransfer(context.Background(), task, files, RuntimeOptionsFromTask(task))
++	second, err := newTorrentTransfer(context.Background(), task, files, loopbackRuntimeOptions(task))
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+diff --git a/internal/download/ftp/ftp.go b/internal/download/ftp/ftp.go
+index f512df4..d5966e2 100644
+--- a/internal/download/ftp/ftp.go
++++ b/internal/download/ftp/ftp.go
+@@ -7,6 +7,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"net"
++	"net/textproto"
+ 	"net/url"
+ 	"os"
+ 	"path"
+@@ -32,12 +33,14 @@ const (
+ )
+ 
+ type Worker struct {
+-	Limiter *ratelimit.Limiter
++	Limiter   *ratelimit.Limiter
++	tlsConfig *tls.Config
+ }
+ 
+ type sourceInfo struct {
+ 	host, remotePath, username, password, tlsMode string
+ 	timeout                                       time.Duration
++	tlsConfig                                     *tls.Config
+ }
+ 
+ func IsSource(source string) bool {
+@@ -49,6 +52,10 @@ func IsSource(source string) bool {
+ }
+ 
+ func Parse(ctx context.Context, source, downloadDir, proxyURL string, maxRetries int) (core.Task, error) {
++	return parse(ctx, source, downloadDir, proxyURL, maxRetries, nil)
++}
++
++func parse(ctx context.Context, source, downloadDir, proxyURL string, maxRetries int, tlsConfig *tls.Config) (core.Task, error) {
+ 	info, cleanURL, err := parseSource(source)
+ 	if err != nil {
+ 		return core.Task{}, err
+@@ -56,16 +63,20 @@ func Parse(ctx context.Context, source, downloadDir, proxyURL string, maxRetries
+ 	if err := validateProxy(proxyURL); err != nil {
+ 		return core.Task{}, err
+ 	}
++	info.tlsConfig = tlsConfig
+ 	conn, err := dial(ctx, info, proxyURL)
+ 	if err != nil {
+ 		return core.Task{}, err
+ 	}
+ 	defer conn.Quit()
+ 	size, err := conn.FileSize(info.remotePath)
+-	if err != nil {
++	if err != nil && !sizeCommandUnsupported(err) {
+ 		return core.Task{}, fmt.Errorf("读取 FTP 文件大小：%w", err)
+ 	}
+-	title := filepath.Base(filepath.FromSlash(info.remotePath))
++	if err != nil {
++		size = 0
++	}
++	title := safeFileName(filepath.Base(filepath.FromSlash(info.remotePath)))
+ 	if title == "." || title == string(filepath.Separator) || title == "" {
+ 		return core.Task{}, errors.New("FTP 地址缺少文件名")
+ 	}
+@@ -78,11 +89,39 @@ func Parse(ctx context.Context, source, downloadDir, proxyURL string, maxRetries
+ 	return core.NewTask("ftp", title, cleanURL, downloadDir, size, stage), nil
+ }
+ 
++func sizeCommandUnsupported(err error) bool {
++	var protocolError *textproto.Error
++	if !errors.As(err, &protocolError) {
++		return false
++	}
++	return protocolError.Code == 500 || protocolError.Code == 502 || protocolError.Code == 504
++}
++
++func safeFileName(name string) string {
++	name = strings.Map(func(value rune) rune {
++		if value < 32 || strings.ContainsRune(`<>:"/\|?*`, value) {
++			return '_'
++		}
++		return value
++	}, name)
++	name = strings.TrimRight(name, ". ")
++	if name == "" || name == "." {
++		return "download"
++	}
++	base := strings.ToUpper(strings.TrimSuffix(name, filepath.Ext(name)))
++	if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" ||
++		(len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9') {
++		name = "_" + name
++	}
++	return name
++}
++
+ func (w Worker) Run(ctx context.Context, task core.Task, report func(core.ProgressUpdate)) error {
+ 	info, err := sourceFromTask(task)
+ 	if err != nil {
+ 		return err
+ 	}
++	info.tlsConfig = w.tlsConfig
+ 	if report == nil {
+ 		report = func(core.ProgressUpdate) {}
+ 	}
+@@ -240,8 +279,11 @@ func waitLimited(ctx context.Context, limiter *ratelimit.Limiter, bytes int) err
+ 
+ func parseSource(source string) (sourceInfo, string, error) {
+ 	u, err := url.Parse(strings.TrimSpace(source))
++	if err != nil || u == nil {
++		return sourceInfo{}, "", errors.New("FTP 地址格式无效")
++	}
+ 	scheme := strings.ToLower(u.Scheme)
+-	if err != nil || (scheme != "ftp" && scheme != "ftps" && scheme != "ftpes") || u.Hostname() == "" {
++	if (scheme != "ftp" && scheme != "ftps" && scheme != "ftpes") || u.Hostname() == "" {
+ 		return sourceInfo{}, "", errors.New("FTP 地址格式无效")
+ 	}
+ 	tlsMode := ""
+@@ -297,7 +339,13 @@ func dial(ctx context.Context, info sourceInfo, proxyURL string) (*ftp.ServerCon
+ 	}
+ 	if info.tlsMode != "" {
+ 		host, _, _ := net.SplitHostPort(info.host)
+-		tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
++		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
++		if info.tlsConfig != nil {
++			tlsConfig = info.tlsConfig.Clone()
++		}
++		if tlsConfig.ServerName == "" {
++			tlsConfig.ServerName = host
++		}
+ 		if info.tlsMode == "explicit" {
+ 			options = append(options, ftp.DialWithExplicitTLS(tlsConfig))
+ 		} else {
+diff --git a/internal/download/ftp/ftp_test.go b/internal/download/ftp/ftp_test.go
+index d0e4835..849c705 100644
+--- a/internal/download/ftp/ftp_test.go
++++ b/internal/download/ftp/ftp_test.go
+@@ -4,13 +4,22 @@ import (
+ 	"bufio"
+ 	"bytes"
+ 	"context"
++	"crypto/ecdsa"
++	"crypto/elliptic"
++	"crypto/rand"
++	"crypto/tls"
++	"crypto/x509"
++	"crypto/x509/pkix"
++	"encoding/pem"
+ 	"fmt"
++	"math/big"
+ 	"net"
+ 	"os"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+ 	"testing"
++	"time"
+ 
+ 	"ghost-downloader-go-win32/internal/core"
+ )
+@@ -68,6 +77,28 @@ func TestParseRejectsDirectory(t *testing.T) {
+ 	}
+ }
+ 
++func TestParseSourceRejectsMalformedURLWithoutPanic(t *testing.T) {
++	for _, source := range []string{"ftp://bad host/file.bin", "ftp://%zz/file.bin", "ftp://host/file\x00.bin"} {
++		if _, _, err := parseSource(source); err == nil {
++			t.Fatalf("malformed source accepted: %q", source)
++		}
++	}
++}
++
++func TestSafeFileNameForWindowsOutput(t *testing.T) {
++	for input, want := range map[string]string{
++		"bad:name?.iso": "bad_name_.iso",
++		"archive. ":     "archive",
++		"CON":           "_CON",
++		"lpt1.txt":      "_lpt1.txt",
++		"":              "download",
++	} {
++		if got := safeFileName(input); got != want {
++			t.Fatalf("safeFileName(%q)=%q want %q", input, got, want)
++		}
++	}
++}
++
+ func TestParseHonorsCanceledContext(t *testing.T) {
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	cancel()
+@@ -108,7 +139,56 @@ func TestParseAndWorkerResumeFromLocalFTP(t *testing.T) {
+ 	}
+ }
+ 
++func TestParseAndWorkerUseRealImplicitFTPS(t *testing.T) {
++	content := bytes.Repeat([]byte("encrypted FTPS fixture\n"), 256)
++	serverTLS, clientTLS := testTLSConfigs(t)
++	address, closeServer := startFTPSServer(t, content, serverTLS)
++	defer closeServer()
++	dir := t.TempDir()
++	task, err := parse(context.Background(), "ftps://user:pass@"+address+"/secure/archive.bin", dir, "", 0, clientTLS)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := (Worker{tlsConfig: clientTLS}).Run(context.Background(), task, nil); err != nil {
++		t.Fatal(err)
++	}
++	got, err := os.ReadFile(task.OutputFile())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !bytes.Equal(got, content) {
++		t.Fatal("FTPS payload mismatch")
++	}
++}
++
++func TestParseAndWorkerSupportServerWithoutSizeCommand(t *testing.T) {
++	content := bytes.Repeat([]byte("unknown-size fixture\n"), 128)
++	address, closeServer := startFTPServerWithSize(t, content, false)
++	defer closeServer()
++	task, err := Parse(context.Background(), "ftp://user:pass@"+address+"/downloads/unknown.bin", t.TempDir(), "", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if task.FileSize != 0 {
++		t.Fatalf("unknown file size=%d want 0", task.FileSize)
++	}
++	if err := (Worker{}).Run(context.Background(), task, nil); err != nil {
++		t.Fatal(err)
++	}
++	got, err := os.ReadFile(task.OutputFile())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !bytes.Equal(got, content) {
++		t.Fatal("unknown-size FTP payload mismatch")
++	}
++}
++
+ func startFTPServer(t *testing.T, content []byte) (string, func()) {
++	return startFTPServerWithSize(t, content, true)
++}
++
++func startFTPServerWithSize(t *testing.T, content []byte, supportsSize bool) (string, func()) {
+ 	t.Helper()
+ 	listener, err := net.Listen("tcp", "127.0.0.1:0")
+ 	if err != nil {
+@@ -126,7 +206,36 @@ func startFTPServer(t *testing.T, content []byte) (string, func()) {
+ 			wg.Add(1)
+ 			go func() {
+ 				defer wg.Done()
+-				handleFTPConnection(conn, content)
++				handleFTPConnection(conn, content, nil, supportsSize)
++			}()
++		}
++	}()
++	return listener.Addr().String(), func() {
++		_ = listener.Close()
++		<-stopped
++		wg.Wait()
++	}
++}
++
++func startFTPSServer(t *testing.T, content []byte, config *tls.Config) (string, func()) {
++	t.Helper()
++	listener, err := tls.Listen("tcp", "127.0.0.1:0", config)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var wg sync.WaitGroup
++	stopped := make(chan struct{})
++	go func() {
++		defer close(stopped)
++		for {
++			conn, err := listener.Accept()
++			if err != nil {
++				return
++			}
++			wg.Add(1)
++			go func() {
++				defer wg.Done()
++				handleFTPConnection(conn, content, config, true)
+ 			}()
+ 		}
+ 	}()
+@@ -137,7 +246,46 @@ func startFTPServer(t *testing.T, content []byte) (string, func()) {
+ 	}
+ }
+ 
+-func handleFTPConnection(conn net.Conn, content []byte) {
++func testTLSConfigs(t *testing.T) (*tls.Config, *tls.Config) {
++	t.Helper()
++	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	template := &x509.Certificate{
++		SerialNumber: big.NewInt(1),
++		Subject:      pkix.Name{CommonName: "local FTPS fixture"},
++		NotBefore:    time.Now().Add(-time.Hour),
++		NotAfter:     time.Now().Add(time.Hour),
++		KeyUsage:     x509.KeyUsageDigitalSignature,
++		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
++		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
++	}
++	der, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
++	if err != nil {
++		t.Fatal(err)
++	}
++	keyDER, err := x509.MarshalECPrivateKey(privateKey)
++	if err != nil {
++		t.Fatal(err)
++	}
++	certificate, err := tls.X509KeyPair(
++		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
++		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}),
++	)
++	if err != nil {
++		t.Fatal(err)
++	}
++	root, err := x509.ParseCertificate(der)
++	if err != nil {
++		t.Fatal(err)
++	}
++	roots := x509.NewCertPool()
++	roots.AddCert(root)
++	return &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12}, &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
++}
++
++func handleFTPConnection(conn net.Conn, content []byte, dataTLS *tls.Config, supportsSize bool) {
+ 	defer conn.Close()
+ 	reader := bufio.NewReader(conn)
+ 	writer := bufio.NewWriter(conn)
+@@ -177,15 +325,23 @@ func handleFTPConnection(conn net.Conn, content []byte) {
+ 			reply("211 End")
+ 		case "SYST":
+ 			reply("215 UNIX Type: L8")
+-		case "OPTS", "TYPE", "NOOP":
++		case "OPTS", "TYPE", "NOOP", "PBSZ", "PROT":
+ 			reply("200 OK")
+ 		case "SIZE":
+-			reply("213 %d", len(content))
++			if supportsSize {
++				reply("213 %d", len(content))
++			} else {
++				reply("502 unsupported")
++			}
+ 		case "EPSV":
+ 			if passive != nil {
+ 				_ = passive.Close()
+ 			}
+-			passive, _ = net.Listen("tcp", "127.0.0.1:0")
++			if dataTLS == nil {
++				passive, _ = net.Listen("tcp", "127.0.0.1:0")
++			} else {
++				passive, _ = tls.Listen("tcp", "127.0.0.1:0", dataTLS)
++			}
+ 			port := passive.Addr().(*net.TCPAddr).Port
+ 			reply("229 Entering Extended Passive Mode (|||%d|)", port)
+ 		case "REST":
+diff --git a/internal/ui/app.go b/internal/ui/app.go
+index adec136..6a575b8 100644
+--- a/internal/ui/app.go
++++ b/internal/ui/app.go
+@@ -146,16 +146,16 @@ func Run(options Options) error {
+ 			statusLabel.SetText("读取文件选择失败：" + err.Error())
+ 			return
+ 		}
+-		indexes := make([]int, 0, len(files))
++		priorities := make(map[int]int, len(files))
+ 		for _, file := range files {
+ 			if file.Selected {
+-				indexes = append(indexes, file.Index)
++				priorities[file.Index] = file.Priority
+ 			}
+ 		}
+ 		statusLabel.SetText("正在应用 BitTorrent 文件选择…")
+ 		go func() {
+ 			err := options.Scheduler.EditTask(taskID, func(latest core.Task) (core.Task, error) {
+-				return btdownload.SetSelectedFiles(latest, indexes)
++				return btdownload.SetFilePriorities(latest, priorities)
+ 			})
+ 			app.Post(func() {
+ 				if err != nil {
+diff --git a/internal/ui/bt_selection_dialog.go b/internal/ui/bt_selection_dialog.go
+index c8904e3..a327a55 100644
+--- a/internal/ui/bt_selection_dialog.go
++++ b/internal/ui/bt_selection_dialog.go
+@@ -25,6 +25,11 @@ type btSelectionModel struct {
+ func newBTSelectionModel(files []btdownload.File) *btSelectionModel {
+ 	model := &btSelectionModel{rows: make([]btSelectionRow, len(files))}
+ 	for index, file := range files {
++		if !file.Selected {
++			file.Priority = btdownload.FilePriorityNone
++		} else if file.Priority < btdownload.FilePriorityLow || file.Priority > btdownload.FilePriorityHigh {
++			file.Priority = btdownload.FilePriorityNormal
++		}
+ 		model.rows[index] = btSelectionRow{file: file, checked: file.Selected}
+ 	}
+ 	return model
+@@ -47,6 +52,8 @@ func (m *btSelectionModel) Value(row, column int) interface{} {
+ 		return file.Path
+ 	case 1:
+ 		return formatBytes(file.Size)
++	case 2:
++		return priorityLabel(file.Priority, m.rows[row].checked)
+ 	default:
+ 		return ""
+ 	}
+@@ -64,6 +71,11 @@ func (m *btSelectionModel) SetChecked(row int, checked bool) error {
+ 		return nil
+ 	}
+ 	m.rows[row].checked = checked
++	if checked && m.rows[row].file.Priority == btdownload.FilePriorityNone {
++		m.rows[row].file.Priority = btdownload.FilePriorityNormal
++	} else if !checked {
++		m.rows[row].file.Priority = btdownload.FilePriorityNone
++	}
+ 	m.PublishRowChanged(row)
+ 	m.notifyChanged()
+ 	return nil
+@@ -97,6 +109,41 @@ func (m *btSelectionModel) SelectedIndexes() ([]int, error) {
+ 	return result, nil
+ }
+ 
++func (m *btSelectionModel) SelectedPriorities() (map[int]int, error) {
++	if m == nil {
++		return nil, errors.New("请至少选择一个 BitTorrent 文件")
++	}
++	result := make(map[int]int)
++	for _, row := range m.rows {
++		if row.checked {
++			result[row.file.Index] = row.file.Priority
++		}
++	}
++	if len(result) == 0 {
++		return nil, errors.New("请至少选择一个 BitTorrent 文件")
++	}
++	return result, nil
++}
++
++func (m *btSelectionModel) SetPriority(rows []int, priority int) error {
++	if priority < btdownload.FilePriorityLow || priority > btdownload.FilePriorityHigh {
++		return fmt.Errorf("BitTorrent 文件优先级 %d 无效", priority)
++	}
++	if len(rows) == 0 {
++		return errors.New("请先在列表中选中要调整的文件")
++	}
++	for _, row := range rows {
++		if row < 0 || row >= len(m.rows) {
++			return fmt.Errorf("BitTorrent 文件行 %d 超出范围", row)
++		}
++		m.rows[row].checked = true
++		m.rows[row].file.Priority = priority
++		m.PublishRowChanged(row)
++	}
++	m.notifyChanged()
++	return nil
++}
++
+ func (m *btSelectionModel) SelectedSize() int64 {
+ 	if m == nil {
+ 		return 0
+@@ -136,6 +183,11 @@ func (m *btSelectionModel) setChecks(next func(bool) bool) {
+ 		checked := next(m.rows[index].checked)
+ 		if m.rows[index].checked != checked {
+ 			m.rows[index].checked = checked
++			if checked {
++				m.rows[index].file.Priority = btdownload.FilePriorityNormal
++			} else {
++				m.rows[index].file.Priority = btdownload.FilePriorityNone
++			}
+ 			changed = true
+ 		}
+ 	}
+@@ -145,6 +197,20 @@ func (m *btSelectionModel) setChecks(next func(bool) bool) {
+ 	}
+ }
+ 
++func priorityLabel(priority int, selected bool) string {
++	if !selected {
++		return "不下载"
++	}
++	switch priority {
++	case btdownload.FilePriorityLow:
++		return "低"
++	case btdownload.FilePriorityHigh:
++		return "高"
++	default:
++		return "普通"
++	}
++}
++
+ func (m *btSelectionModel) notifyChanged() {
+ 	if m != nil && m.onChanged != nil {
+ 		m.onChanged()
+@@ -169,6 +235,11 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string)
+ 		}
+ 	}
+ 	model.onChanged = updateSummary
++	applyPriority := func(priority int) {
++		if err := model.SetPriority(table.SelectedIndexes(), priority); err != nil {
++			walk.MsgBox(dialog, "种子文件", err.Error(), walk.MsgBoxIconWarning)
++		}
++	}
+ 
+ 	definition := Dialog{
+ 		AssignTo:      &dialog,
+@@ -179,7 +250,7 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string)
+ 		DefaultButton: &acceptButton,
+ 		CancelButton:  &cancelButton,
+ 		Children: []Widget{
+-			Label{Text: "请选择要下载的文件；勾选的文件将加入任务。"},
++			Label{Text: "勾选要下载的文件；选中列表行后可设置低、普通或高优先级。"},
+ 			TableView{
+ 				AssignTo:            &table,
+ 				Model:               model,
+@@ -188,8 +259,9 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string)
+ 				ColumnsSizable:      true,
+ 				LastColumnStretched: false,
+ 				Columns: []TableViewColumn{
+-					{Title: "路径", Width: 610},
+-					{Title: "大小", Width: 130, Alignment: AlignFar},
++					{Title: "路径", Width: 500},
++					{Title: "大小", Width: 120, Alignment: AlignFar},
++					{Title: "优先级", Width: 90},
+ 				},
+ 			},
+ 			Composite{
+@@ -198,6 +270,9 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string)
+ 					PushButton{Text: "全选", OnClicked: model.SelectAll},
+ 					PushButton{Text: "清空", OnClicked: model.Clear},
+ 					PushButton{Text: "反选", OnClicked: model.Invert},
++					PushButton{Text: "低优先级", OnClicked: func() { applyPriority(btdownload.FilePriorityLow) }},
++					PushButton{Text: "普通", OnClicked: func() { applyPriority(btdownload.FilePriorityNormal) }},
++					PushButton{Text: "高优先级", OnClicked: func() { applyPriority(btdownload.FilePriorityHigh) }},
+ 					HSpacer{},
+ 					Label{AssignTo: &summaryLabel, Text: model.summary()},
+ 				},
+@@ -208,14 +283,14 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string)
+ 					HSpacer{},
+ 					PushButton{
+ 						AssignTo: &acceptButton,
+-						Text:     "添加任务",
++						Text:     "确定",
+ 						OnClicked: func() {
+-							selectedIndexes, err := model.SelectedIndexes()
++							priorities, err := model.SelectedPriorities()
+ 							if err != nil {
+ 								walk.MsgBox(dialog, "种子文件", err.Error(), walk.MsgBoxIconWarning)
+ 								return
+ 							}
+-							selectedTask, err = btdownload.SetSelectedFiles(task, selectedIndexes)
++							selectedTask, err = btdownload.SetFilePriorities(task, priorities)
+ 							if err != nil {
+ 								walk.MsgBox(dialog, "种子文件", err.Error(), walk.MsgBoxIconWarning)
+ 								return
+diff --git a/internal/ui/bt_selection_dialog_test.go b/internal/ui/bt_selection_dialog_test.go
+index 8d35bc2..add161e 100644
+--- a/internal/ui/bt_selection_dialog_test.go
++++ b/internal/ui/bt_selection_dialog_test.go
+@@ -52,6 +52,44 @@ func TestBTSelectionModelSelectedSizeAndDisplay(t *testing.T) {
+ 	}
+ }
+ 
++func TestBTSelectionModelEditsPriorityLevels(t *testing.T) {
++	model := newBTSelectionModel([]btdownload.File{
++		{Index: 0, Path: "one.bin", Size: 10, Selected: true, Priority: 4},
++		{Index: 2, Path: "two.bin", Size: 20, Selected: false},
++	})
++	if got := model.Value(0, 2); got != "普通" {
++		t.Fatalf("legacy priority label = %v", got)
++	}
++	if err := model.SetPriority([]int{0}, btdownload.FilePriorityLow); err != nil {
++		t.Fatal(err)
++	}
++	if err := model.SetPriority([]int{1}, btdownload.FilePriorityHigh); err != nil {
++		t.Fatal(err)
++	}
++	priorities, err := model.SelectedPriorities()
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := map[int]int{0: btdownload.FilePriorityLow, 2: btdownload.FilePriorityHigh}
++	if !reflect.DeepEqual(priorities, want) || model.Value(0, 2) != "低" || model.Value(1, 2) != "高" {
++		t.Fatalf("priorities=%v want=%v", priorities, want)
++	}
++}
++
++func TestBTSelectionModelNormalizesLegacyUncheckedPriority(t *testing.T) {
++	model := newBTSelectionModel([]btdownload.File{{Index: 7, Path: "legacy.bin", Size: 1, Selected: false, Priority: 4}})
++	if err := model.SetChecked(0, true); err != nil {
++		t.Fatal(err)
++	}
++	priorities, err := model.SelectedPriorities()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if priorities[7] != btdownload.FilePriorityNormal {
++		t.Fatalf("legacy priority=%d want normal", priorities[7])
++	}
++}
++
+ func TestBTOptionsFromSettings(t *testing.T) {
+ 	settings := config.Settings{
+ 		DownloadDir:             `D:\Downloads`,

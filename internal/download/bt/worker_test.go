@@ -3,6 +3,7 @@ package btdownload
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -31,6 +32,61 @@ type fakeTransfer struct {
 	snapshots []transferSnapshot
 	index     int
 	closed    bool
+}
+
+func TestEngineFilePriorityMapsPersistedLevels(t *testing.T) {
+	if engineFilePriority(1) != torrent.PiecePriorityNormal ||
+		engineFilePriority(2) != torrent.PiecePriorityHigh ||
+		engineFilePriority(3) != torrent.PiecePriorityReadahead ||
+		engineFilePriority(4) != torrent.PiecePriorityNormal {
+		t.Fatal("persisted BitTorrent priority mapping changed")
+	}
+}
+
+func TestSequentialModeDoesNotRequestInactiveFiles(t *testing.T) {
+	for _, priority := range []int{1, 2, 3} {
+		if got := requestedFilePriority(priority, true); got != torrent.PiecePriorityNone {
+			t.Fatalf("sequential file priority %d requested inactive pieces: %v", priority, got)
+		}
+		if got := requestedFilePriority(priority, false); got == torrent.PiecePriorityNone {
+			t.Fatalf("normal file priority %d did not request pieces", priority)
+		}
+	}
+}
+
+func TestSequentialFilesHonorPriorityAndStableOrder(t *testing.T) {
+	files := []File{
+		{Index: 0, Selected: true, Priority: 1},
+		{Index: 1, Selected: true, Priority: 3},
+		{Index: 2, Selected: false, Priority: 3},
+		{Index: 3, Selected: true, Priority: 2},
+		{Index: 4, Selected: true, Priority: 3},
+	}
+	ordered := sequentialFiles(files)
+	indexes := make([]int, len(ordered))
+	for index, file := range ordered {
+		indexes[index] = file.Index
+	}
+	if !reflect.DeepEqual(indexes, []int{1, 4, 3, 0}) {
+		t.Fatalf("sequential priority order=%v", indexes)
+	}
+	if files[0].Index != 0 || files[1].Index != 1 {
+		t.Fatalf("sequential ordering mutated source: %#v", files)
+	}
+}
+
+func loopbackClientConfig(config *torrent.ClientConfig) {
+	config.ListenHost = func(string) string { return "127.0.0.1" }
+	config.DisableIPv6 = true
+	config.NoDHT = true
+	config.NoDefaultPortForwarding = true
+}
+
+func loopbackRuntimeOptions(task core.Task) RuntimeOptions {
+	options := RuntimeOptionsFromTask(task)
+	options.testListenHost = func(string) string { return "127.0.0.1" }
+	options.testDisableIPv6 = true
+	return options
 }
 
 func (f *fakeTransfer) Snapshot() (transferSnapshot, error) {
@@ -271,6 +327,7 @@ func TestNewClientFallsBackWhenConfiguredPortIsBusy(t *testing.T) {
 	}
 	newConfig := func() *torrent.ClientConfig {
 		config := torrent.NewDefaultClientConfig()
+		loopbackClientConfig(config)
 		config.DataDir = t.TempDir()
 		config.ListenPort = port
 		config.NoDHT = true
@@ -339,7 +396,7 @@ func TestTorrentTransferDownloadsFromLocalWebseedAndResumes(t *testing.T) {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		active, err := newTorrentTransfer(ctx, task, files, RuntimeOptionsFromTask(task))
+		active, err := newTorrentTransfer(ctx, task, files, loopbackRuntimeOptions(task))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -381,6 +438,65 @@ func TestTorrentTransferDownloadsFromLocalWebseedAndResumes(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if requests.Load() != requestCount {
 		t.Fatalf("resume fetched completed data again: before=%d after=%d", requestCount, requests.Load())
+	}
+}
+
+func TestTorrentTransferDownloadsV2OnlyFromLocalWebseed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping local BitTorrent v2 integration test in short mode")
+	}
+	payload := bytes.Repeat([]byte("v2-only-webseed-fixture\n"), 512)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.ServeContent(response, request, "v2.bin", time.Unix(0, 0), bytes.NewReader(payload))
+	}))
+	defer server.Close()
+	root := sha256.Sum256(payload)
+	metadata := makeV2Torrent(t, v2InfoFixture{
+		Name:        "v2-root",
+		PieceLength: 16 << 10,
+		MetaVersion: 2,
+		FileTree: &metainfo.FileTree{Dir: map[string]metainfo.FileTree{
+			"v2.bin": {File: metainfo.FileTreeFile{Length: int64(len(payload)), PiecesRoot: string(root[:])}},
+		}},
+	}, metainfo.UrlList{server.URL + "/"})
+	metainfoPath := filepath.Join(t.TempDir(), "v2.torrent")
+	if err := os.WriteFile(metainfoPath, metadata, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	downloadDir := t.TempDir()
+	task, err := Resolve(context.Background(), metainfoPath, Options{DownloadDir: downloadDir, ConnectionsLimit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := FilesFromTask(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := newTorrentTransfer(context.Background(), task, files, loopbackRuntimeOptions(task))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, snapshotErr := active.Snapshot()
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		if snapshot.FileBytes[0] >= int64(len(payload)) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := active.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(downloadDir, task.Title, "v2.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatal("v2-only WebSeed payload mismatch")
 	}
 }
 
@@ -452,7 +568,7 @@ func TestTorrentTransferResumesVerifiedPartialPieces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := newTorrentTransfer(context.Background(), task, files, RuntimeOptionsFromTask(task))
+	first, err := newTorrentTransfer(context.Background(), task, files, loopbackRuntimeOptions(task))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +597,7 @@ func TestTorrentTransferResumesVerifiedPartialPieces(t *testing.T) {
 	}
 
 	phase.Store(2)
-	second, err := newTorrentTransfer(context.Background(), task, files, RuntimeOptionsFromTask(task))
+	second, err := newTorrentTransfer(context.Background(), task, files, loopbackRuntimeOptions(task))
 	if err != nil {
 		t.Fatal(err)
 	}

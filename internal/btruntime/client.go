@@ -24,6 +24,13 @@ import (
 
 const stateFiles = "files"
 
+const (
+	FilePriorityNone = iota
+	FilePriorityLow
+	FilePriorityNormal
+	FilePriorityHigh
+)
+
 // Options is serialized to gd3-bt-runtime for source resolution.
 type Options struct {
 	DownloadDir string
@@ -220,25 +227,48 @@ func FilesFromTask(task core.Task) ([]File, error) {
 }
 
 func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error) {
+	priorities := make(map[int]int, len(selectedIndexes))
 	files, err := FilesFromTask(task)
 	if err != nil {
 		return core.Task{}, err
 	}
-	selected := make(map[int]struct{}, len(selectedIndexes))
-	for _, index := range selectedIndexes {
-		selected[index] = struct{}{}
+	current := make(map[int]int, len(files))
+	for _, file := range files {
+		current[file.Index] = normalizeFilePriority(file.Priority, file.Selected)
 	}
-	if len(selected) == 0 {
+	for _, index := range selectedIndexes {
+		priority := current[index]
+		if priority == FilePriorityNone {
+			priority = FilePriorityNormal
+		}
+		priorities[index] = priority
+	}
+	return SetFilePriorities(task, priorities)
+}
+
+// SetFilePriorities updates selection and low/normal/high priority in one
+// persisted operation. Missing indexes are treated as not selected.
+func SetFilePriorities(task core.Task, priorities map[int]int) (core.Task, error) {
+	files, err := FilesFromTask(task)
+	if err != nil {
+		return core.Task{}, err
+	}
+	if len(priorities) == 0 {
 		return core.Task{}, errors.New("at least one BitTorrent file must be selected")
 	}
 	var total int64
 	var received int64
 	var count int
 	for index := range files {
-		_, files[index].Selected = selected[files[index].Index]
+		priority, exists := priorities[files[index].Index]
+		if exists && (priority < FilePriorityLow || priority > FilePriorityHigh) {
+			return core.Task{}, fmt.Errorf("invalid BitTorrent priority %d for file index %d", priority, files[index].Index)
+		}
+		files[index].Selected = exists
 		if files[index].Selected {
-			files[index].Priority = 4
+			files[index].Priority = priority
 			total += files[index].Size
+			files[index].Downloaded = clampDownloaded(files[index].Downloaded, files[index].Size)
 			received += files[index].Downloaded
 			count++
 		} else {
@@ -267,6 +297,26 @@ func SetSelectedFiles(task core.Task, selectedIndexes []int) (core.Task, error) 
 	task.Progress = selectionProgress(received, total)
 	task.Stage.Progress = task.Progress
 	return task, nil
+}
+
+func normalizeFilePriority(priority int, selected bool) int {
+	if !selected {
+		return FilePriorityNone
+	}
+	if priority >= FilePriorityLow && priority <= FilePriorityHigh {
+		return priority
+	}
+	return FilePriorityNormal
+}
+
+func clampDownloaded(downloaded, size int64) int64 {
+	if downloaded < 0 {
+		return 0
+	}
+	if downloaded > size {
+		return size
+	}
+	return downloaded
 }
 
 func selectionProgress(received, total int64) float64 {

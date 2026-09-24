@@ -2,7 +2,7 @@
 
 本文档是后续重构的基准。目标不是机械翻译 Python/PySide6 代码，而是在 Windows 上用 Go + Win32 做一个资源占用更低、分发更干净、体验足够现代的下载器。实现时需要持续对照 Ghost-Downloader-3 当前源码，确保关键行为一致，UI 则做功能完整和视觉近似，不追求 PySide6/qfluentwidgets 的逐像素复刻。
 
-> 实现状态（2026-09-05）：蓝图已推进至 Stage 20，当前验证版本为 `0.1.13-stage20`。HTTP、FTP/FTPS、M3U8、BitTorrent v1/v2 Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；BT 任务支持创建后重新选择文件，并通过受控 runtime 重启保存检查点和恢复任务。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/015-stage-20-ftp-btv2-runtime-selection.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
+> 实现状态（2026-09-06）：蓝图已推进至 Stage 28，当前验证版本为 `0.1.21-stage28`。HTTP、FTP/FTPS/FTPES 递归目录、M3U8、BitTorrent v1/v2 Magnet、浏览器桥接、插件协议、便携更新、紧凑暗色 Win32 界面和独立 BT runtime 已落地；FTP 目录任务具备未知大小兼容、完成标记和 SHA-256 校验。实际行为以 [README](README.md)、[开发者文档](docs/DEVELOPMENT.zh-CN.md) 和[最新阶段记录](docs/implementation-notes/023-stage-28-ftp-directory-review-fixes.md) 为准，本蓝图其余章节继续保留设计背景与长期目标。
 
 ## 0. 本地对照仓库
 

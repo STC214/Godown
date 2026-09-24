@@ -25,6 +25,11 @@ type btSelectionModel struct {
 func newBTSelectionModel(files []btdownload.File) *btSelectionModel {
 	model := &btSelectionModel{rows: make([]btSelectionRow, len(files))}
 	for index, file := range files {
+		if !file.Selected {
+			file.Priority = btdownload.FilePriorityNone
+		} else if file.Priority < btdownload.FilePriorityLow || file.Priority > btdownload.FilePriorityHigh {
+			file.Priority = btdownload.FilePriorityNormal
+		}
 		model.rows[index] = btSelectionRow{file: file, checked: file.Selected}
 	}
 	return model
@@ -47,6 +52,8 @@ func (m *btSelectionModel) Value(row, column int) interface{} {
 		return file.Path
 	case 1:
 		return formatBytes(file.Size)
+	case 2:
+		return priorityLabel(file.Priority, m.rows[row].checked)
 	default:
 		return ""
 	}
@@ -64,6 +71,11 @@ func (m *btSelectionModel) SetChecked(row int, checked bool) error {
 		return nil
 	}
 	m.rows[row].checked = checked
+	if checked && m.rows[row].file.Priority == btdownload.FilePriorityNone {
+		m.rows[row].file.Priority = btdownload.FilePriorityNormal
+	} else if !checked {
+		m.rows[row].file.Priority = btdownload.FilePriorityNone
+	}
 	m.PublishRowChanged(row)
 	m.notifyChanged()
 	return nil
@@ -95,6 +107,41 @@ func (m *btSelectionModel) SelectedIndexes() ([]int, error) {
 		return nil, errors.New("请至少选择一个 BitTorrent 文件")
 	}
 	return result, nil
+}
+
+func (m *btSelectionModel) SelectedPriorities() (map[int]int, error) {
+	if m == nil {
+		return nil, errors.New("请至少选择一个 BitTorrent 文件")
+	}
+	result := make(map[int]int)
+	for _, row := range m.rows {
+		if row.checked {
+			result[row.file.Index] = row.file.Priority
+		}
+	}
+	if len(result) == 0 {
+		return nil, errors.New("请至少选择一个 BitTorrent 文件")
+	}
+	return result, nil
+}
+
+func (m *btSelectionModel) SetPriority(rows []int, priority int) error {
+	if priority < btdownload.FilePriorityLow || priority > btdownload.FilePriorityHigh {
+		return fmt.Errorf("BitTorrent 文件优先级 %d 无效", priority)
+	}
+	if len(rows) == 0 {
+		return errors.New("请先在列表中选中要调整的文件")
+	}
+	for _, row := range rows {
+		if row < 0 || row >= len(m.rows) {
+			return fmt.Errorf("BitTorrent 文件行 %d 超出范围", row)
+		}
+		m.rows[row].checked = true
+		m.rows[row].file.Priority = priority
+		m.PublishRowChanged(row)
+	}
+	m.notifyChanged()
+	return nil
 }
 
 func (m *btSelectionModel) SelectedSize() int64 {
@@ -136,12 +183,31 @@ func (m *btSelectionModel) setChecks(next func(bool) bool) {
 		checked := next(m.rows[index].checked)
 		if m.rows[index].checked != checked {
 			m.rows[index].checked = checked
+			if checked {
+				m.rows[index].file.Priority = btdownload.FilePriorityNormal
+			} else {
+				m.rows[index].file.Priority = btdownload.FilePriorityNone
+			}
 			changed = true
 		}
 	}
 	if changed {
 		m.PublishRowsReset()
 		m.notifyChanged()
+	}
+}
+
+func priorityLabel(priority int, selected bool) string {
+	if !selected {
+		return "不下载"
+	}
+	switch priority {
+	case btdownload.FilePriorityLow:
+		return "低"
+	case btdownload.FilePriorityHigh:
+		return "高"
+	default:
+		return "普通"
 	}
 }
 
@@ -169,6 +235,11 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 		}
 	}
 	model.onChanged = updateSummary
+	applyPriority := func(priority int) {
+		if err := model.SetPriority(table.SelectedIndexes(), priority); err != nil {
+			walk.MsgBox(dialog, "种子文件", err.Error(), walk.MsgBoxIconWarning)
+		}
+	}
 
 	definition := Dialog{
 		AssignTo:      &dialog,
@@ -179,7 +250,7 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 		DefaultButton: &acceptButton,
 		CancelButton:  &cancelButton,
 		Children: []Widget{
-			Label{Text: "请选择要下载的文件；勾选的文件将加入任务。"},
+			Label{Text: "勾选要下载的文件；选中列表行后可设置低、普通或高优先级。"},
 			TableView{
 				AssignTo:            &table,
 				Model:               model,
@@ -188,8 +259,9 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 				ColumnsSizable:      true,
 				LastColumnStretched: false,
 				Columns: []TableViewColumn{
-					{Title: "路径", Width: 610},
-					{Title: "大小", Width: 130, Alignment: AlignFar},
+					{Title: "路径", Width: 500},
+					{Title: "大小", Width: 120, Alignment: AlignFar},
+					{Title: "优先级", Width: 90},
 				},
 			},
 			Composite{
@@ -198,6 +270,9 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 					PushButton{Text: "全选", OnClicked: model.SelectAll},
 					PushButton{Text: "清空", OnClicked: model.Clear},
 					PushButton{Text: "反选", OnClicked: model.Invert},
+					PushButton{Text: "低优先级", OnClicked: func() { applyPriority(btdownload.FilePriorityLow) }},
+					PushButton{Text: "普通", OnClicked: func() { applyPriority(btdownload.FilePriorityNormal) }},
+					PushButton{Text: "高优先级", OnClicked: func() { applyPriority(btdownload.FilePriorityHigh) }},
 					HSpacer{},
 					Label{AssignTo: &summaryLabel, Text: model.summary()},
 				},
@@ -208,14 +283,14 @@ func runBTSelectionDialog(owner walk.Form, task core.Task, themeMode ...string) 
 					HSpacer{},
 					PushButton{
 						AssignTo: &acceptButton,
-						Text:     "添加任务",
+						Text:     "确定",
 						OnClicked: func() {
-							selectedIndexes, err := model.SelectedIndexes()
+							priorities, err := model.SelectedPriorities()
 							if err != nil {
 								walk.MsgBox(dialog, "种子文件", err.Error(), walk.MsgBoxIconWarning)
 								return
 							}
-							selectedTask, err = btdownload.SetSelectedFiles(task, selectedIndexes)
+							selectedTask, err = btdownload.SetFilePriorities(task, priorities)
 							if err != nil {
 								walk.MsgBox(dialog, "种子文件", err.Error(), walk.MsgBoxIconWarning)
 								return

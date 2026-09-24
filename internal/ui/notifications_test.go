@@ -1,10 +1,60 @@
 package ui
 
 import (
+	"reflect"
+	"sync"
 	"testing"
 
 	"ghost-downloader-go-win32/internal/core"
 )
+
+func TestSerialExecutorPreservesSubmissionOrderAndWaits(t *testing.T) {
+	executor := newSerialExecutor()
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var mu sync.Mutex
+	var order []int
+	if !executor.Submit(func() {
+		close(firstEntered)
+		<-releaseFirst
+		mu.Lock()
+		order = append(order, 1)
+		mu.Unlock()
+	}) {
+		t.Fatal("first action rejected")
+	}
+	<-firstEntered
+	for value := 2; value <= 3; value++ {
+		value := value
+		if !executor.Submit(func() {
+			mu.Lock()
+			order = append(order, value)
+			mu.Unlock()
+		}) {
+			t.Fatalf("action %d rejected", value)
+		}
+	}
+	closed := make(chan struct{})
+	go func() {
+		executor.CloseAndWait()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("executor closed before queued actions completed")
+	default:
+	}
+	close(releaseFirst)
+	<-closed
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(order, []int{1, 2, 3}) {
+		t.Fatalf("execution order=%v", order)
+	}
+	if executor.Submit(func() {}) {
+		t.Fatal("closed executor accepted action")
+	}
+}
 
 func TestTaskNotificationTrackerOnlyReportsTerminalTransitions(t *testing.T) {
 	tracker := newTaskNotificationTracker([]core.TaskSnapshot{

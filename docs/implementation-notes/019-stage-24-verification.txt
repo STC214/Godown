@@ -1,0 +1,99 @@
+Stage 24 / Windows PowerShell / 2026-09-06
+Root: F:\Project\04_Desktop_Dev_Utilities\Downloader
+Baseline: existing Stage 23 working files (not Git HEAD).
+Original: .codex-artifacts/stage24-original
+Modified: .codex-artifacts/stage24-modified
+Original SHA256:
+ftp.go F8350A273F436E8E70F2DE9B4BC67B9099C8AEC1195EFE2C63E23FA653C92C1B
+ftp_test.go BD2F511E999DA9CAC66C65456C3C286B86CD505E3B06CEB03B6187107971C725
+README.md BF60A2D2B38E1164B48860C312132C40C068AB424F60E0630447B9C184541530
+
+BASELINE with new regression test:
+COMMAND: go test ./internal/download/ftp -run TestWorkerCancelWhileWaitingForFinalReply -count=1 -timeout=30s
+INPUT: loopback FTP/FTPS/FTPES, complete payload, final control reply suppressed; task timeout 3s; cancel after payload written; cancellation bound 1s.
+OUTPUT:
+--- FAIL: TestWorkerCancelWhileWaitingForFinalReply (9.02s)
+    --- FAIL: TestWorkerCancelWhileWaitingForFinalReply/ftp (3.01s)
+        ftp_test.go:294: cancellation waited for the FTP final-reply timeout
+    --- FAIL: TestWorkerCancelWhileWaitingForFinalReply/ftps (3.01s)
+        ftp_test.go:294: cancellation waited for the FTP final-reply timeout
+    --- FAIL: TestWorkerCancelWhileWaitingForFinalReply/ftpes (3.01s)
+        ftp_test.go:294: cancellation waited for the FTP final-reply timeout
+FAIL
+FAIL	ghost-downloader-go-win32/internal/download/ftp	9.827s
+FAIL
+EXIT: 1
+
+MODIFIED:
+COMMAND: go test ./internal/download/ftp -count=1 -timeout=45s
+OUTPUT: ok  	ghost-downloader-go-win32/internal/download/ftp	0.827s
+EXIT: 0
+The regression additionally asserts context.Canceled, final file absent, complete .part retained.
+
+COMMAND: go test -race ./internal/download/ftp -count=10 -timeout=90s
+OUTPUT: ok  	ghost-downloader-go-win32/internal/download/ftp	3.001s
+EXIT: 0
+
+COMMAND: go test ./... -count=1
+OUTPUT:
+ok  	ghost-downloader-go-win32/cmd/gd3-bt-runtime	1.013s
+ok  	ghost-downloader-go-win32/cmd/gd3win	0.953s
+ok  	ghost-downloader-go-win32/internal/app	0.950s
+ok  	ghost-downloader-go-win32/internal/browserbridge	0.457s
+ok  	ghost-downloader-go-win32/internal/btruntime	0.416s
+?   	ghost-downloader-go-win32/internal/buildinfo	[no test files]
+ok  	ghost-downloader-go-win32/internal/config	0.151s
+ok  	ghost-downloader-go-win32/internal/core	0.553s
+ok  	ghost-downloader-go-win32/internal/download/bt	22.942s
+ok  	ghost-downloader-go-win32/internal/download/ffmpeg	0.886s
+ok  	ghost-downloader-go-win32/internal/download/ftp	0.534s
+ok  	ghost-downloader-go-win32/internal/download/http	0.400s
+ok  	ghost-downloader-go-win32/internal/download/m3u8	0.936s
+ok  	ghost-downloader-go-win32/internal/logging	0.366s
+ok  	ghost-downloader-go-win32/internal/pluginhost	2.668s
+ok  	ghost-downloader-go-win32/internal/ratelimit	0.302s
+ok  	ghost-downloader-go-win32/internal/storage	0.649s
+ok  	ghost-downloader-go-win32/internal/ui	0.304s
+ok  	ghost-downloader-go-win32/internal/update	0.193s
+ok  	ghost-downloader-go-win32/internal/win32	0.132s
+EXIT: 0
+COMMAND: go vet ./...
+OUTPUT: (empty)
+EXIT: 0
+
+PACKAGE:
+COMMAND: .\scripts\package-portable.ps1 -Version "0.1.17-stage24"
+OUTPUT:
+BUILD=PASS
+VERSION=0.1.17-stage24
+GUI=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.17-stage24-windows-x64\gd3win.exe
+BT_RUNTIME=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.17-stage24-windows-x64\gd3-bt-runtime.exe
+PACKAGE=PASS
+VERSION=0.1.17-stage24
+PORTABLE_ZIP=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.17-stage24-windows-x64-portable.zip
+SHA256=c1203a3c9b83d41be8fde49ac91ed2a57dce75a31476074faf2342266a955a0c
+EXIT: 0
+CHECK: Expand-Archive to .codex-artifacts/stage24-package-check; compare each release-manifest.json SHA256 with Get-FileHash.
+OUTPUT: MANIFEST=PASS
+EXIT: 0
+COMMAND: Start-Process extracted gd3win.exe -ArgumentList "--version" -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput .codex-artifacts/stage24-version.txt
+OUTPUT FILE: 0.1.17-stage24
+PROCESS EXIT: 0
+Old Stage 23 ZIP hash rechecked unchanged: 7FE69CFDA42434DDC7ABC98B21A2AE2D74679632FB6FFB3C23F3626586D55602
+
+PATCH AND ISOLATED ROLLBACK:
+COMMAND: git apply --check --reverse -p3 "docs/implementation-notes/019-stage-24.patch"
+OUTPUT: (empty)
+EXIT: 0
+SETUP: Copy-Item -LiteralPath ".codex-artifacts/stage24-modified" -Destination ".codex-artifacts/stage24-rollback-check" -Recurse
+COMMAND: .\scripts\rollback-stage24.ps1 -TargetRoot ".codex-artifacts/stage24-rollback-check"
+OUTPUT: ROLLBACK=PASS (source and README; user data and portable packages untouched)
+EXIT: 0
+COMMAND: git diff --no-index --exit-code -- ".codex-artifacts/stage24-original" ".codex-artifacts/stage24-rollback-check"
+OUTPUT: (empty)
+EXIT: 0
+COMMAND: git diff --check
+OUTPUT: (empty)
+EXIT: 0
+
+No public BT swarm or manual UI verification performed. TLS regression uses ephemeral locally trusted certificates; certificate validation remains enabled.

@@ -1,0 +1,98 @@
+Stage 26 verification / Windows PowerShell / 2026-09-06
+Workspace: F:\Project\04_Desktop_Dev_Utilities\Downloader
+Baseline: Stage 25 working files, not Git HEAD.
+Original snapshot: .codex-artifacts/stage26-original
+Modified snapshot: .codex-artifacts/stage26-modified
+
+BASELINE REVIEW:
+INPUT: Stage 25 UI callbacks for TogglePause, Redownload, EditTask, StartAll and PauseAll.
+OBSERVED SOURCE: each operation started an independent `go func`; no shared FIFO or shutdown wait existed.
+BEHAVIOR: submissions could acquire Scheduler.editMu in a different order, so the final state was not guaranteed to match the final click. Early Run errors also left no owner to join background execution.
+
+MODIFIED TARGETED:
+COMMAND: go test ./internal/ui -run TestSerialExecutorPreservesSubmissionOrderAndWaits -count=10
+INPUT: first action blocked; actions 2 and 3 queued; CloseAndWait invoked before first action released.
+ASSERTIONS: CloseAndWait waits; order is exactly 1,2,3; submission after close is rejected.
+OUTPUT: ok  ghost-downloader-go-win32/internal/ui 1.189s
+EXIT: 0
+COMMAND: go test ./internal/ui ./internal/core -count=1
+OUTPUT:
+ok  ghost-downloader-go-win32/internal/ui 1.120s
+ok  ghost-downloader-go-win32/internal/core 0.283s
+EXIT: 0
+COMMAND: go test ./internal/ui -count=10
+OUTPUT: ok  ghost-downloader-go-win32/internal/ui 0.170s
+EXIT: 0
+
+RACE:
+COMMAND: go test -race ./internal/ui ./internal/download/ftp ./internal/core -count=10 -timeout=120s
+OUTPUT:
+ok  ghost-downloader-go-win32/internal/ui 5.801s
+ok  ghost-downloader-go-win32/internal/download/ftp 3.287s
+ok  ghost-downloader-go-win32/internal/core 3.040s
+EXIT: 0
+
+FULL SUITE:
+COMMAND: go test ./... -count=1
+OUTPUT:
+ok  ghost-downloader-go-win32/cmd/gd3-bt-runtime 1.274s
+ok  ghost-downloader-go-win32/cmd/gd3win 0.587s
+ok  ghost-downloader-go-win32/internal/app 1.186s
+ok  ghost-downloader-go-win32/internal/browserbridge 0.283s
+ok  ghost-downloader-go-win32/internal/btruntime 0.355s
+?   ghost-downloader-go-win32/internal/buildinfo [no test files]
+ok  ghost-downloader-go-win32/internal/config 0.159s
+ok  ghost-downloader-go-win32/internal/core 0.327s
+ok  ghost-downloader-go-win32/internal/download/bt 23.191s
+ok  ghost-downloader-go-win32/internal/download/ffmpeg 1.037s
+ok  ghost-downloader-go-win32/internal/download/ftp 0.779s
+ok  ghost-downloader-go-win32/internal/download/http 0.430s
+ok  ghost-downloader-go-win32/internal/download/m3u8 1.095s
+ok  ghost-downloader-go-win32/internal/logging 0.383s
+ok  ghost-downloader-go-win32/internal/pluginhost 2.767s
+ok  ghost-downloader-go-win32/internal/ratelimit 0.340s
+ok  ghost-downloader-go-win32/internal/storage 0.680s
+ok  ghost-downloader-go-win32/internal/ui 0.380s
+ok  ghost-downloader-go-win32/internal/update 0.277s
+ok  ghost-downloader-go-win32/internal/win32 0.231s
+EXIT: 0
+COMMAND: go vet ./...
+OUTPUT: empty
+EXIT: 0
+
+PACKAGE:
+COMMAND: .\scripts\package-portable.ps1 -Version "0.1.19-stage26"
+OUTPUT:
+BUILD=PASS
+VERSION=0.1.19-stage26
+GUI=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.19-stage26-windows-x64\gd3win.exe
+BT_RUNTIME=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.19-stage26-windows-x64\gd3-bt-runtime.exe
+PACKAGE=PASS
+VERSION=0.1.19-stage26
+PORTABLE_ZIP=F:\Project\04_Desktop_Dev_Utilities\Downloader\release\GhostDownloader-0.1.19-stage26-windows-x64-portable.zip
+SHA256=57d9cec4919aadbf02690c9d9175955e0140ea9478dac122376b57c06de8e497
+EXIT: 0
+CHECK: Expand-Archive to .codex-artifacts/stage26-package-check; verify each release-manifest.json file hash.
+OUTPUT: MANIFEST=PASS
+EXIT: 0
+COMMAND: Start-Process extracted gd3win.exe -ArgumentList "--version" -WindowStyle Hidden -Wait -PassThru
+OUTPUT FILE: 0.1.19-stage26
+PROCESS EXIT: 0
+Stage 25 ZIP rechecked unchanged: A56F20AF9AC4263F12AFBB4651D30EB7DDA4E9D5F30748F5E40B4279423BACF4
+
+PATCH AND ISOLATED ROLLBACK:
+COMMAND: git apply --check --reverse -p3 "docs/implementation-notes/021-stage-26.patch"
+OUTPUT: empty
+EXIT: 0
+SETUP: Copy .codex-artifacts/stage26-modified recursively to .codex-artifacts/stage26-rollback-check.
+COMMAND: .\scripts\rollback-stage26.ps1 -TargetRoot ".codex-artifacts/stage26-rollback-check"
+OUTPUT: ROLLBACK=PASS (UI source, test and README; user data and packages untouched)
+EXIT: 0
+COMMAND: git diff --no-index --exit-code -- ".codex-artifacts/stage26-original" ".codex-artifacts/stage26-rollback-check"
+OUTPUT: empty
+EXIT: 0
+COMMAND: git diff --check
+OUTPUT: empty
+EXIT: 0
+
+Verified modified behavior: scheduler actions remain asynchronous to the UI but execute in FIFO order; normal and early-return paths join the executor. No public BT swarm or manual UI interaction was used.
