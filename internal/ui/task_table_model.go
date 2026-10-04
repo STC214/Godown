@@ -138,14 +138,40 @@ func (m *taskTableModel) SetDarkMode(enabled bool) {
 }
 
 func (m *taskTableModel) StyleCell(style *walk.CellStyle) {
-	if !m.darkMode {
-		return
-	}
-	style.BackgroundColor = walk.RGB(30, 31, 34)
+	p := paletteForDarkMode(m.darkMode)
+	style.BackgroundColor = p.surface
 	if style.Row()%2 == 1 {
-		style.BackgroundColor = walk.RGB(38, 39, 43)
+		style.BackgroundColor = p.raised
 	}
-	style.TextColor = walk.RGB(242, 243, 245)
+	style.TextColor = p.text
+	if style.Col() == 5 {
+		style.TextColor = p.muted
+	}
+	if task, ok := m.TaskAt(style.Row()); ok && style.Col() == 1 {
+		style.TextColor = p.statusColor(task.Status, m.darkMode)
+	}
+}
+
+// Walk supplies native selected/focused colors before each subitem draw.
+// Preserve them instead of painting dark status text over a blue highlight.
+type taskTableCellStyler struct {
+	model *taskTableModel
+	table **walk.TableView
+}
+
+func (s taskTableCellStyler) StyleCell(style *walk.CellStyle) {
+	if s.table != nil && *s.table != nil {
+		table := *s.table
+		if !table.MultiSelection() && table.CurrentIndex() == style.Row() {
+			return
+		}
+		for _, row := range table.SelectedIndexes() {
+			if row == style.Row() {
+				return
+			}
+		}
+	}
+	s.model.StyleCell(style)
 }
 
 func (m *taskTableModel) TaskAt(row int) (core.TaskSnapshot, bool) {

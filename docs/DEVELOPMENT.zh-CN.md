@@ -11,6 +11,20 @@
 
 入口为 `cmd/gd3win/main.go`，应用装配位于 `internal/app`。
 
+### 主窗口视觉与原生回归验证
+
+`internal/ui/main_window_layout.go` 定义主窗口布局，通过控件引用和动作回调接入 `app.go`，避免视觉调整改变下载业务。`visual_palette.go` 统一明暗配色和状态色；`button_style.go` 仅接管命名按钮的绘制，保留原生输入、焦点和事件链，释放时恢复窗口过程。尺寸使用 Walk 的 96-DPI 逻辑单位。
+
+任务表格通过稳定任务 ID 保持选择；重建行时同时发布 RowsReset 和 RowsChanged，保证新增任务及同数量进度更新立即重绘。默认创建时间排序使用独立的排序值，不与文件大小列混用。
+
+主窗口表格使用单选模式，详情刷新绑定 `CurrentIndexChanged`，而不是仅在多选模式维护的 `SelectedIndexesChanged`。`taskTableCellStyler` 对选中行保留 Walk 提供的系统高亮色，其他行才应用状态色与斑马纹。表格颜色消息必须发送到 TableView 内部的两个 `SysListView32`，而非外层 Walk 容器。
+
+状态栏 Label 使用 `EllipsisEnd`、`NoPrefix` 和可伸缩宽度，通过其 Text 属性变更事件同步完整文本到工具提示。长路径和错误消息不会增大主窗口最小宽度。
+
+运行 `go test ./internal/ui -count=1` 检查真实 Win32 表格事件链、主题配色对比度、按钮通知和主窗口布局。布局测试使用不激活的屏外窗口，检查 1160×780 和 860×650 逻辑尺寸下控件边界，覆盖长状态文本、选中/取消选中的详情更新、两个原生列表的配色、明暗切换、控件先销毁与样式先释放两种生命周期，以及重复 Dispose。设置环境变量 `GDOWNLOADER_PREVIEW_DIR` 为已存在的绝对目录，可输出实际控件的 PNG 预览（GDI 捕获的保留 alpha 字节会归一化为不透明）。
+
+原生测试需要 Windows 和应用 manifest。Walk/Win 的 MAKEINTRESOURCE 伪指针不兼容 Go checkptr；竞态检查仅对第三方包使用 `go test -race '-gcflags=github.com/lxn/...=-d=checkptr=0' ./internal/ui`，项目代码仍保留 checkptr 检查。
+
 ## 2. 目录结构
 
 ```text

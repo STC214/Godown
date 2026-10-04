@@ -19,7 +19,6 @@ import (
 	appwin32 "ghost-downloader-go-win32/internal/win32"
 
 	"github.com/lxn/walk"
-	. "github.com/lxn/walk/declarative"
 )
 
 type Options struct {
@@ -331,244 +330,87 @@ func Run(options Options) error {
 		}(source, settings, clearURL)
 	}
 
-	window := MainWindow{
-		AssignTo: &mainWindow,
-		Title:    "Ghost Downloader Go " + options.AppVersion,
-		MinSize:  Size{Width: 510, Height: 620},
-		Size:     Size{Width: 1120, Height: 720},
-		Layout:   VBox{MarginsZero: true, SpacingZero: true},
-		Children: []Widget{
-			Composite{
-				Layout: VBox{Margins: Margins{Left: 14, Top: 10, Right: 14, Bottom: 10}, Spacing: 6},
-				Children: []Widget{
-					Composite{
-						Layout: HBox{MarginsZero: true},
-						Children: []Widget{
-							LineEdit{
-								AssignTo:      &urlEdit,
-								MinSize:       Size{Width: 120, Height: 0},
-								StretchFactor: 1,
-								Text:          "",
-							},
-							PushButton{
-								Text: "添加地址",
-								OnClicked: func() {
-									parseAndAddSource(urlEdit.Text(), true)
-								},
-							},
-						},
-					},
-					Composite{
-						Layout: HBox{MarginsZero: true},
-						Children: []Widget{
-							PushButton{
-								Text: "打开种子",
-								OnClicked: func() {
-									dialog := new(walk.FileDialog)
-									dialog.Title = "打开种子文件"
-									dialog.Filter = "种子文件 (*.torrent)|*.torrent|所有文件 (*.*)|*.*"
-									ok, err := dialog.ShowOpen(mainWindow)
-									if err != nil {
-										statusLabel.SetText("打开种子文件失败：" + err.Error())
-										return
-									}
-									if ok {
-										parseAndAddSource(dialog.FilePath, false)
-									}
-								},
-							},
-							PushButton{
-								Text: "设置",
-								OnClicked: func() {
-									next, ok, err := runSettingsDialog(mainWindow, currentSettings)
-									if err != nil {
-										statusLabel.SetText("打开设置失败：" + err.Error())
-										return
-									}
-									if !ok {
-										return
-									}
-									next = next.Normalized(options.Paths)
-									if err := saveSettings(options, next); err != nil {
-										statusLabel.SetText("保存设置失败：" + err.Error())
-										return
-									}
-									currentSettings = next
-									themeStyle.Apply(next.ThemeMode)
-									taskModel.SetDarkMode(appwin32.DarkModeEnabled(next.ThemeMode))
-									options.Scheduler.SetMaxRunning(next.MaxConcurrent)
-									if options.Limiter != nil {
-										options.Limiter.SetRate(next.SpeedLimitKiB * 1024)
-									}
-									statusLabel.SetText("设置已保存。")
-								},
-							},
-							PushButton{Text: "检查更新", OnClicked: checkForUpdates},
-							PushButton{Text: "打开日志", OnClicked: openLogFile},
-							PushButton{
-								Text: "全部开始",
-								OnClicked: func() {
-									statusLabel.SetText("正在启动全部任务…")
-									schedulerActions.Submit(func() {
-										options.Scheduler.StartAll()
-										app.Post(func() { statusLabel.SetText("所有暂停任务已加入队列。") })
-									})
-								},
-							},
-							PushButton{
-								Text: "全部暂停",
-								OnClicked: func() {
-									statusLabel.SetText("正在暂停全部任务…")
-									schedulerActions.Submit(func() {
-										options.Scheduler.PauseAll()
-										app.Post(func() { statusLabel.SetText("所有活动任务已暂停。") })
-									})
-								},
-							},
-							HSpacer{},
-						},
-					},
-					Composite{
-						Layout: HBox{MarginsZero: true},
-						Children: []Widget{
-							PushButton{
-								Text:      "暂停/继续",
-								OnClicked: toggleSelectedTask,
-							},
-							PushButton{
-								Text:      "重新下载",
-								OnClicked: redownloadSelectedTask,
-							},
-							PushButton{
-								Text:      "BT 文件",
-								OnClicked: editSelectedBTFiles,
-							},
-							PushButton{
-								Text:      "移除任务",
-								OnClicked: removeSelectedTask,
-							},
-							PushButton{
-								Text:      "打开目录",
-								OnClicked: openSelectedTaskFolder,
-							},
-							PushButton{
-								Text:      "打开文件",
-								OnClicked: openSelectedTaskFile,
-							},
-							HSpacer{},
-						},
-					},
-				},
-			},
-			Composite{
-				Layout: VBox{Margins: Margins{Left: 16, Top: 14, Right: 16, Bottom: 14}},
-				Children: []Widget{
-					Composite{
-						Layout: HBox{MarginsZero: true},
-						Children: []Widget{
-							Label{
-								Text:      "下载任务",
-								Font:      Font{PointSize: 18, Bold: true},
-								Alignment: AlignHNearVCenter,
-							},
-							Label{
-								AssignTo: &taskSummaryLabel,
-								Text:     "全部 0 | 活动 0 | 完成 0 | 失败 0",
-							},
-							LineEdit{
-								AssignTo:      &taskSearchEdit,
-								CueBanner:     "搜索任务",
-								MinSize:       Size{Width: 80, Height: 0},
-								StretchFactor: 1,
-								OnTextChanged: func() {
-									taskModel.SetSearchText(taskSearchEdit.Text())
-									refreshTaskSelection(taskTable, taskModel, &selectedTaskID, taskDetail)
-									updateTaskSummary(taskSummaryLabel, taskModel)
-								},
-							},
-							ComboBox{
-								AssignTo:     &taskFilterBox,
-								Model:        []string{"全部", "活动", "已完成", "失败"},
-								CurrentIndex: 0,
-								MinSize:      Size{Width: 90, Height: 0},
-								OnCurrentIndexChanged: func() {
-									if applyingTaskFilter {
-										return
-									}
-									applyTaskFilter(taskFilter(taskFilterBox.CurrentIndex()))
-								},
-							},
-						},
-					},
-					Composite{
-						MinSize: Size{Width: 0, Height: 24},
-						Layout:  HBox{MarginsZero: true, SpacingZero: true},
-						Children: []Widget{
-							PushButton{AssignTo: &taskHeaderButtons[0], Text: "名称", MinSize: Size{Width: 110}, MaxSize: Size{Width: 110}, OnClicked: func() { sortTaskColumn(0) }},
-							PushButton{AssignTo: &taskHeaderButtons[1], Text: "状态", MinSize: Size{Width: 60}, MaxSize: Size{Width: 60}, OnClicked: func() { sortTaskColumn(1) }},
-							PushButton{AssignTo: &taskHeaderButtons[2], Text: "进度", MinSize: Size{Width: 65}, MaxSize: Size{Width: 65}, OnClicked: func() { sortTaskColumn(2) }},
-							PushButton{AssignTo: &taskHeaderButtons[3], Text: "大小", MinSize: Size{Width: 75}, MaxSize: Size{Width: 75}, OnClicked: func() { sortTaskColumn(3) }},
-							PushButton{AssignTo: &taskHeaderButtons[4], Text: "速度", MinSize: Size{Width: 70}, MaxSize: Size{Width: 70}, OnClicked: func() { sortTaskColumn(4) }},
-							PushButton{AssignTo: &taskHeaderButtons[5], Text: "目录", StretchFactor: 1, OnClicked: func() { sortTaskColumn(5) }},
-						},
-					},
-					TableView{
-						AssignTo:                    &taskTable,
-						MinSize:                     Size{Width: 0, Height: 0},
-						AlternatingRowBG:            true,
-						ColumnsOrderable:            false,
-						ColumnsSizable:              false,
-						CustomRowHeight:             32,
-						HeaderHidden:                true,
-						LastColumnStretched:         true,
-						Model:                       taskModel,
-						SelectionHiddenWithoutFocus: true,
-						ContextMenuItems: []MenuItem{
-							Action{Text: "暂停/继续", OnTriggered: toggleSelectedTask},
-							Action{Text: "重新下载", OnTriggered: redownloadSelectedTask},
-							Action{Text: "选择 BT 文件", OnTriggered: editSelectedBTFiles},
-							Separator{},
-							Action{Text: "打开目录", OnTriggered: openSelectedTaskFolder},
-							Action{Text: "打开文件", OnTriggered: openSelectedTaskFile},
-							Separator{},
-							Action{Text: "移除任务", OnTriggered: removeSelectedTask},
-						},
-						Columns: []TableViewColumn{
-							{Title: "名称", Width: 110},
-							{Title: "状态", Width: 60},
-							{Title: "进度", Width: 65, Alignment: AlignFar},
-							{Title: "大小", Width: 75, Alignment: AlignFar},
-							{Title: "速度", Width: 70, Alignment: AlignFar},
-							{Title: "目录", Width: 80},
-						},
-						OnSelectedIndexesChanged: func() {
-							refreshTaskSelection(taskTable, taskModel, &selectedTaskID, taskDetail)
-						},
-					},
-					TextEdit{
-						AssignTo: &taskDetail,
-						ReadOnly: true,
-						VScroll:  true,
-						MinSize:  Size{Width: 0, Height: 86},
-						Text:     "未选择任务。",
-					},
-				},
-			},
-			Composite{
-				Layout: HBox{Margins: Margins{Left: 14, Top: 8, Right: 14, Bottom: 8}},
-				Children: []Widget{
-					Label{
-						AssignTo: &statusLabel,
-						Text:     fmt.Sprintf("就绪 | 下载目录：%s", currentSettings.DownloadDir),
-					},
-				},
-			},
+	window := mainWindowLayout(options.AppVersion, currentSettings.DownloadDir, mainWindowControls{
+		window: &mainWindow, status: &statusLabel, summary: &taskSummaryLabel,
+		url: &urlEdit, search: &taskSearchEdit, filter: &taskFilterBox,
+		table: &taskTable, detail: &taskDetail, headers: &taskHeaderButtons, model: taskModel,
+	}, mainWindowActions{
+		add: func() {
+			parseAndAddSource(urlEdit.Text(), true)
 		},
-	}
-
+		torrent: func() {
+			dialog := new(walk.FileDialog)
+			dialog.Title = "打开种子文件"
+			dialog.Filter = "种子文件 (*.torrent)|*.torrent|所有文件 (*.*)|*.*"
+			ok, err := dialog.ShowOpen(mainWindow)
+			if err != nil {
+				statusLabel.SetText("打开种子文件失败：" + err.Error())
+				return
+			}
+			if ok {
+				parseAndAddSource(dialog.FilePath, false)
+			}
+		},
+		settings: func() {
+			next, ok, err := runSettingsDialog(mainWindow, currentSettings)
+			if err != nil {
+				statusLabel.SetText("打开设置失败：" + err.Error())
+				return
+			}
+			if !ok {
+				return
+			}
+			next = next.Normalized(options.Paths)
+			if err := saveSettings(options, next); err != nil {
+				statusLabel.SetText("保存设置失败：" + err.Error())
+				return
+			}
+			currentSettings = next
+			themeStyle.Apply(next.ThemeMode)
+			taskModel.SetDarkMode(appwin32.DarkModeEnabled(next.ThemeMode))
+			options.Scheduler.SetMaxRunning(next.MaxConcurrent)
+			if options.Limiter != nil {
+				options.Limiter.SetRate(next.SpeedLimitKiB * 1024)
+			}
+			statusLabel.SetText("设置已保存。")
+		},
+		updates: checkForUpdates, logs: openLogFile,
+		startAll: func() {
+			statusLabel.SetText("正在启动全部任务…")
+			schedulerActions.Submit(func() {
+				options.Scheduler.StartAll()
+				app.Post(func() { statusLabel.SetText("所有暂停任务已加入队列。") })
+			})
+		},
+		pauseAll: func() {
+			statusLabel.SetText("正在暂停全部任务…")
+			schedulerActions.Submit(func() {
+				options.Scheduler.PauseAll()
+				app.Post(func() { statusLabel.SetText("所有活动任务已暂停。") })
+			})
+		},
+		toggle: toggleSelectedTask, redownload: redownloadSelectedTask, btFiles: editSelectedBTFiles,
+		remove: removeSelectedTask, openFolder: openSelectedTaskFolder, openFile: openSelectedTaskFile,
+		search: func() {
+			taskModel.SetSearchText(taskSearchEdit.Text())
+			refreshTaskSelection(taskTable, taskModel, &selectedTaskID, taskDetail)
+			updateTaskSummary(taskSummaryLabel, taskModel)
+		},
+		filter: func() {
+			if applyingTaskFilter {
+				return
+			}
+			applyTaskFilter(taskFilter(taskFilterBox.CurrentIndex()))
+		},
+		selection: func() {
+			refreshTaskSelection(taskTable, taskModel, &selectedTaskID, taskDetail)
+		},
+		sort: sortTaskColumn,
+	})
 	if err := window.Create(); err != nil {
 		return fmt.Errorf("创建主窗口失败：%w", err)
 	}
+	trackStatusTooltip(statusLabel)
 	// TableView initializes sorter models to its first column while creating the
 	// native control. Restore the product default and synchronize the custom
 	// dark header before the window is shown.
@@ -760,7 +602,7 @@ func updateTaskSummary(label *walk.Label, model *taskTableModel) {
 		return
 	}
 	all, active, completed, failed := model.Counts()
-	label.SetText(fmt.Sprintf("全部 %d | 活动 %d | 完成 %d | 失败 %d", all, active, completed, failed))
+	label.SetText(fmt.Sprintf("全部 %d  ·  活动 %d  ·  完成 %d  ·  失败 %d", all, active, completed, failed))
 }
 
 func formatBytes(value int64) string {

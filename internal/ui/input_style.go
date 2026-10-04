@@ -26,11 +26,11 @@ type readableInputStyle struct {
 }
 
 func newReadableInputStyle(mode string, inputs ...textInput) (*readableInputStyle, error) {
-	lightBackground, err := walk.NewSolidColorBrush(walk.RGB(255, 255, 255))
+	lightBackground, err := walk.NewSolidColorBrush(paletteForDarkMode(false).raised)
 	if err != nil {
 		return nil, err
 	}
-	darkBackground, err := walk.NewSolidColorBrush(walk.RGB(43, 45, 49))
+	darkBackground, err := walk.NewSolidColorBrush(paletteForDarkMode(true).raised)
 	if err != nil {
 		lightBackground.Dispose()
 		return nil, err
@@ -46,10 +46,9 @@ func (s *readableInputStyle) Apply(mode string) {
 	}
 	dark := appwin32.DarkModeEnabled(mode)
 	background := walk.Brush(s.lightBackground)
-	text := walk.RGB(17, 17, 17)
+	text := paletteForDarkMode(dark).text
 	if dark {
 		background = s.darkBackground
-		text = walk.RGB(242, 243, 245)
 	}
 	// An empty sub-app theme disables themed EDIT painting. Walk can then honor
 	// the explicit background and text colors consistently before first focus.
