@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"syscall"
+	"unsafe"
 
 	"ghost-downloader-go-win32/internal/core"
 
 	"github.com/lxn/walk"
+	"github.com/lxn/win"
 )
 
 type taskFilter int
@@ -152,26 +155,82 @@ func (m *taskTableModel) StyleCell(style *walk.CellStyle) {
 	}
 }
 
-// Walk supplies native selected/focused colors before each subitem draw.
-// Preserve them instead of painting dark status text over a blue highlight.
+// Draw selected cells explicitly: native focused/unfocused highlight colors
+// vary with Windows themes and can have poor contrast in the dark UI.
 type taskTableCellStyler struct {
 	model *taskTableModel
 	table **walk.TableView
 }
 
+// Call directly through syscall's uintptr-escape-aware API. A RECT address
+// passed through win.SendMessage's unannotated uintptr parameter may stay on
+// a Go stack that moves when the native ListView re-enters Walk's Go callback.
+var taskCellRectMessage = syscall.NewLazyDLL("user32.dll").NewProc("SendMessageW")
+
 func (s taskTableCellStyler) StyleCell(style *walk.CellStyle) {
 	if s.table != nil && *s.table != nil {
 		table := *s.table
 		if !table.MultiSelection() && table.CurrentIndex() == style.Row() {
+			s.drawSelectedCell(style, table)
 			return
 		}
 		for _, row := range table.SelectedIndexes() {
 			if row == style.Row() {
+				s.drawSelectedCell(style, table)
 				return
 			}
 		}
 	}
 	s.model.StyleCell(style)
+}
+
+func (s taskTableCellStyler) drawSelectedCell(style *walk.CellStyle, table *walk.TableView) {
+	p := paletteForDarkMode(s.model.darkMode)
+	style.BackgroundColor, style.TextColor = p.selectedBackground, p.selectedText
+	col := style.Col()
+	if col < 0 || col >= table.Columns().Len() {
+		return // Row-level custom draw has no canvas; subitems paint below.
+	}
+	lv := selectedTaskListView(table)
+	if lv == 0 {
+		return
+	}
+	// Nmcd.Rc may cover the entire row, especially for column zero. Query
+	// native cell geometry so text, clipping, DPI and horizontal scrolling agree.
+	rect := win.RECT{Top: int32(col), Left: win.LVIR_BOUNDS}
+	result, _, _ := taskCellRectMessage.Call(uintptr(lv), win.LVM_GETSUBITEMRECT, uintptr(style.Row()), uintptr(unsafe.Pointer(&rect)))
+	if result == 0 || rect.Bottom <= rect.Top {
+		return
+	}
+	rect.Right = rect.Left + int32(win.SendMessage(lv, win.LVM_GETCOLUMNWIDTH, uintptr(col), 0))
+	canvas := style.Canvas()
+	if canvas == nil {
+		return
+	}
+	fillNativeRect(canvas.HDC(), &rect, win.COLORREF(p.selectedBackground))
+	padding := int32(walk.IntFrom96DPI(6, table.DPI()))
+	rect.Left += padding
+	rect.Right -= padding
+	format := walk.TextVCenter | walk.TextSingleLine | walk.TextEndEllipsis | walk.TextNoPrefix
+	if table.Columns().At(col).Alignment() == walk.AlignFar {
+		format |= walk.TextRight
+	}
+	_ = canvas.DrawTextPixels(fmt.Sprint(s.model.Value(style.Row(), col)), table.Font(), p.selectedText,
+		walk.Rectangle{X: int(rect.Left), Y: int(rect.Top), Width: int(rect.Right - rect.Left), Height: int(rect.Bottom - rect.Top)}, format)
+}
+
+// The main task table has no frozen columns; select its non-zero-width native
+// ListView, not Walk's outer container or the hidden frozen-column sibling.
+func selectedTaskListView(table *walk.TableView) win.HWND {
+	for child := win.GetWindow(table.Handle(), win.GW_CHILD); child != 0; child = win.GetWindow(child, win.GW_HWNDNEXT) {
+		var name [128]uint16
+		length, _ := win.GetClassName(child, &name[0], len(name))
+		var rect win.RECT
+		if syscall.UTF16ToString(name[:length]) == "SysListView32" && win.GetClientRect(child, &rect) && rect.Right > 0 {
+			return child
+		}
+	}
+	return 0
 }
 
 func (m *taskTableModel) TaskAt(row int) (core.TaskSnapshot, bool) {

@@ -37,3 +37,15 @@ func TestVisualPaletteTextContrast(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectedTaskContrast(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		p := paletteForDarkMode(dark)
+		a, b := colorLuminance(p.selectedText), colorLuminance(p.selectedBackground)
+		ratio := (math.Max(a, b) + 0.05) / (math.Min(a, b) + 0.05)
+		if ratio < 7 {
+			t.Errorf("dark=%v selected text contrast=%.2f want >=7", dark, ratio)
+		}
+		t.Logf("dark=%v selected text contrast=%.2f:1", dark, ratio)
+	}
+}

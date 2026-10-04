@@ -17,7 +17,13 @@
 
 任务表格通过稳定任务 ID 保持选择；重建行时同时发布 RowsReset 和 RowsChanged，保证新增任务及同数量进度更新立即重绘。默认创建时间排序使用独立的排序值，不与文件大小列混用。
 
-主窗口表格使用单选模式，详情刷新绑定 `CurrentIndexChanged`，而不是仅在多选模式维护的 `SelectedIndexesChanged`。`taskTableCellStyler` 对选中行保留 Walk 提供的系统高亮色，其他行才应用状态色与斑马纹。表格颜色消息必须发送到 TableView 内部的两个 `SysListView32`，而非外层 Walk 容器。
+主窗口表格使用单选模式，详情刷新绑定 `CurrentIndexChanged`，而不是仅在多选模式维护的 `SelectedIndexesChanged`。`taskTableCellStyler` 对选中行使用统一高对比配色，其他行才应用状态色与斑马纹。由于 Walk 在行级阶段会恢复系统焦点/失焦高亮背景，选中单元格通过 CellStyle.Canvas 显式绘制背景和文字；使用 LVM_GETSUBITEMRECT 与实际列宽确定区域，保留 DPI 缩放、右对齐、省略号与横向滚动。颜色消息仍必须发送到 TableView 内部的两个 `SysListView32`，而非外层 Walk 容器。
+
+选中行文字与背景对比度：暗色 10.20:1、亮色 12.04:1；测试要求至少 7:1。原生位图测试逐列检查选中背景和文字像素，并发送获得/失去焦点通知验证绘制，不激活屏外夹具或改变用户焦点。
+
+单元格矩形指针通过 `syscall.LazyProc.Call` 直接传递给 SendMessageW，使用其 uintptr 参数逃逸保证：旧版 Win 包的 SendMessage 参数未标记 uintptr 逃逸，Walk 的原生消息回调引发 Go 栈移动时可能使局部 RECT 的地址失效。绘制前还检查矩形高度；编译器逃逸分析确认 RECT 移至堆。
+
+`native_capture_test.go` 提供自有 WM_PRINT/GDI 捕获夹具，成对释放窗口 DC、内存 DC、位图和选入对象，并将 BGRA 转为不透明 RGBA；避免 Walk Bitmap.ToImage 未释放桌面 DC 的问题。布局测试逐个选中下载中、完成、暂停、等待、失败任务，覆盖两种主题和两种窗口尺寸，检查六列实际像素；连续 20 次截图要求 GDI 对象数不增长。
 
 状态栏 Label 使用 `EllipsisEnd`、`NoPrefix` 和可伸缩宽度，通过其 Text 属性变更事件同步完整文本到工具提示。长路径和错误消息不会增大主窗口最小宽度。
 

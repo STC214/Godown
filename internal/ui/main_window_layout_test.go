@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"ghost-downloader-go-win32/internal/core"
 	"github.com/lxn/walk"
@@ -104,10 +105,10 @@ func TestMainWindowVisualLayout(t *testing.T) {
 			BackgroundColor: walk.Color(win.GetSysColor(win.COLOR_HIGHLIGHT)),
 			TextColor:       walk.Color(win.GetSysColor(win.COLOR_HIGHLIGHTTEXT)),
 		}
-		before := selected
 		table.CellStyler().StyleCell(&selected)
-		if selected.BackgroundColor != before.BackgroundColor || selected.TextColor != before.TextColor {
-			t.Errorf("selected cell overwrote native highlight colors: got bg=%x text=%x want bg=%x text=%x", selected.BackgroundColor, selected.TextColor, before.BackgroundColor, before.TextColor)
+		p := paletteForDarkMode(mode == "dark")
+		if selected.BackgroundColor != p.selectedBackground || selected.TextColor != p.selectedText {
+			t.Errorf("selected cell contrast palette: got bg=%x text=%x want bg=%x text=%x", selected.BackgroundColor, selected.TextColor, p.selectedBackground, p.selectedText)
 		}
 		table.SetCurrentIndex(-1)
 		if selectedTaskID != "" || detail.Text() != "未选择任务。" {
@@ -150,19 +151,23 @@ func TestMainWindowVisualLayout(t *testing.T) {
 					t.Fatalf("native click count=%d", clicks)
 				}
 			}
+			table.SetCurrentIndex(0)
+			for row := 0; row < len(tasks); row++ {
+				if err := table.SetCurrentIndex(row); err != nil {
+					t.Fatal(err)
+				}
+				assertSelectedTaskPixels(t, table, p, row)
+			}
+			if err := table.SetCurrentIndex(0); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "dark" && width == 1160 {
+				assertSelectedCaptureResources(t, table)
+			}
 			if dir := os.Getenv("GDOWNLOADER_PREVIEW_DIR"); dir != "" && width == 1160 {
-				bitmap, err := walk.NewBitmapFromWindow(window)
+				img, err := captureNativeWindow(window)
 				if err != nil {
 					t.Fatal(err)
-				}
-				img, err := bitmap.ToImage()
-				bitmap.Dispose()
-				if err != nil {
-					t.Fatal(err)
-				}
-				// GDI's BI_RGB capture has an unused alpha byte, not transparency.
-				for offset := 3; offset < len(img.Pix); offset += 4 {
-					img.Pix[offset] = 255
 				}
 				file, err := os.Create(filepath.Join(dir, "visual-refresh-"+mode+".png"))
 				if err != nil {
@@ -192,6 +197,77 @@ func TestMainWindowVisualLayout(t *testing.T) {
 	}
 	if _, retained := buttonStyles.Load(primaryHWND); retained {
 		t.Error("disposed style retained its native registry entry")
+	}
+}
+
+func assertSelectedCaptureResources(t *testing.T, table *walk.TableView) {
+	t.Helper()
+	getResources := syscall.NewLazyDLL("user32.dll").NewProc("GetGuiResources")
+	before, _, _ := getResources.Call(^uintptr(0), 0)
+	if before == 0 {
+		t.Fatal("GetGuiResources baseline failed")
+	}
+	for i := 0; i < 20; i++ {
+		_, err := captureNativeWindow(table)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, _, _ := getResources.Call(^uintptr(0), 0)
+	if after == 0 {
+		t.Fatal("GetGuiResources verification failed")
+	}
+	t.Logf("20 native captures: GDI objects before=%d after=%d", before, after)
+	if after > before {
+		t.Errorf("repeated selected-row captures leaked GDI objects: before=%d after=%d", before, after)
+	}
+}
+
+func assertSelectedTaskPixels(t *testing.T, table *walk.TableView, p visualPalette, row int) {
+	t.Helper()
+	lv := selectedTaskListView(table)
+	if lv == 0 {
+		t.Fatal("native task list missing")
+	}
+	// Focus notifications exercise the native control's two highlight states
+	// without activating the off-screen fixture or moving the user's focus.
+	for _, notification := range []uint32{win.WM_SETFOCUS, win.WM_KILLFOCUS} {
+		win.SendMessage(lv, notification, 0, 0)
+		img, err := captureNativeWindow(table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var windowRect win.RECT
+		win.GetWindowRect(table.Handle(), &windowRect)
+		origin := win.POINT{}
+		win.ClientToScreen(lv, &origin)
+		for col := 0; col < table.Columns().Len(); col++ {
+			rect := win.RECT{Top: int32(col), Left: win.LVIR_BOUNDS}
+			result, _, _ := syscall.NewLazyDLL("user32.dll").NewProc("SendMessageW").Call(uintptr(lv), win.LVM_GETSUBITEMRECT, uintptr(row), uintptr(unsafe.Pointer(&rect)))
+			if result == 0 || rect.Bottom <= rect.Top {
+				t.Fatal("native selected cell bounds missing")
+			}
+			rect.Right = rect.Left + int32(win.SendMessage(lv, win.LVM_GETCOLUMNWIDTH, uintptr(col), 0))
+			x := int(origin.X - windowRect.Left + rect.Left + 2)
+			y := int(origin.Y - windowRect.Top + (rect.Top+rect.Bottom)/2)
+			pixel := img.RGBAAt(x, y)
+			actual := walk.RGB(pixel.R, pixel.G, pixel.B)
+			if actual != p.selectedBackground {
+				t.Errorf("focus notification=%x row=%d col=%d selected background=%x want=%x rect=%v current=%d", notification, row, col, actual, p.selectedBackground, rect, table.CurrentIndex())
+			}
+			textPixels := 0
+			for yy := int(origin.Y - windowRect.Top + rect.Top); yy < int(origin.Y-windowRect.Top+rect.Bottom); yy++ {
+				for xx := int(origin.X - windowRect.Left + rect.Left); xx < int(origin.X-windowRect.Left+rect.Right); xx++ {
+					pixel := img.RGBAAt(xx, yy)
+					if walk.RGB(pixel.R, pixel.G, pixel.B) == p.selectedText {
+						textPixels++
+					}
+				}
+			}
+			if textPixels == 0 {
+				t.Errorf("focus notification=%x row=%d col=%d high-contrast text not rendered rect=%v current=%d", notification, row, col, rect, table.CurrentIndex())
+			}
+		}
 	}
 }
 

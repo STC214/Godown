@@ -10,10 +10,11 @@ import (
 var taskColumnWidths = [...]int{230, 92, 100, 160, 96, 140}
 
 type visualPalette struct {
-	canvas, surface, raised, border walk.Color
-	text, muted                     walk.Color
-	accent, accentHover, onAccent   walk.Color
-	success, warning, danger        walk.Color
+	canvas, surface, raised, border  walk.Color
+	text, muted                      walk.Color
+	accent, accentHover, onAccent    walk.Color
+	success, warning, danger         walk.Color
+	selectedBackground, selectedText walk.Color
 }
 
 func paletteForDarkMode(dark bool) visualPalette {
@@ -24,6 +25,7 @@ func paletteForDarkMode(dark bool) visualPalette {
 			text: walk.RGB(231, 237, 247), muted: walk.RGB(156, 170, 189),
 			accent: walk.RGB(59, 111, 225), accentHover: walk.RGB(47, 93, 199), onAccent: walk.RGB(255, 255, 255),
 			success: walk.RGB(94, 214, 143), warning: walk.RGB(251, 191, 36), danger: walk.RGB(248, 113, 113),
+			selectedBackground: walk.RGB(30, 64, 120), selectedText: walk.RGB(255, 255, 255),
 		}
 	}
 	return visualPalette{
@@ -32,6 +34,7 @@ func paletteForDarkMode(dark bool) visualPalette {
 		text: walk.RGB(30, 41, 59), muted: walk.RGB(100, 116, 139),
 		accent: walk.RGB(37, 99, 235), accentHover: walk.RGB(29, 78, 216), onAccent: walk.RGB(255, 255, 255),
 		success: walk.RGB(21, 128, 61), warning: walk.RGB(180, 83, 9), danger: walk.RGB(185, 28, 49),
+		selectedBackground: walk.RGB(219, 234, 254), selectedText: walk.RGB(23, 37, 84),
 	}
 }
 
