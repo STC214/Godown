@@ -26,6 +26,7 @@ type Scheduler struct {
 	stopping     bool
 	eventsClosed bool
 	loadFailed   bool
+	pauseEpoch   uint64
 }
 
 type runningTask struct {
@@ -61,7 +62,7 @@ func (s *Scheduler) Load() error {
 	migrated := false
 	for i := range tasks {
 		task := cloneTask(tasks[i])
-		prepared, err := task.PrepareFTPDirectoryOutput()
+		prepared, err := task.PrepareFTPDirectoryOutput(s.reservedOutputsLocked()...)
 		if err != nil {
 			s.loadFailed = true
 			return err
@@ -105,7 +106,7 @@ func (s *Scheduler) Add(task Task) {
 	s.mu.Lock()
 	task = cloneTask(task)
 	requestedStatus := task.Status
-	prepared, err := task.PrepareFTPDirectoryOutput()
+	prepared, err := task.PrepareFTPDirectoryOutput(s.reservedOutputsLocked()...)
 	if err == nil {
 		task = prepared
 		if requestedStatus == StatusWaiting && task.Status == StatusPaused {
@@ -123,6 +124,14 @@ func (s *Scheduler) Add(task Task) {
 	s.scheduleSaveLocked()
 	s.emitLocked()
 	s.mu.Unlock()
+}
+
+func (s *Scheduler) reservedOutputsLocked() []string {
+	paths := make([]string, 0, len(s.tasks))
+	for _, task := range s.tasks {
+		paths = append(paths, task.OutputFile())
+	}
+	return paths
 }
 
 func (s *Scheduler) TogglePause(taskID string) error {
@@ -191,6 +200,7 @@ func (s *Scheduler) PauseAll() {
 	defer s.editMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pauseEpoch++
 	for id, running := range s.running {
 		if task := s.tasks[id]; task != nil {
 			task.Status = StatusPaused
@@ -331,7 +341,9 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
 	if edit == nil {
 		return errors.New("task editor is nil")
 	}
-	s.editSerialMu.Lock()
+	if !s.editSerialMu.TryLock() {
+		return errors.New("task edit already in progress")
+	}
 	defer s.editSerialMu.Unlock()
 	s.editMu.Lock()
 	s.mu.Lock()
@@ -371,6 +383,7 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
 		return errors.New("task not found")
 	}
 	original := cloneTask(*task)
+	pauseEpoch := s.pauseEpoch
 	s.mu.Unlock()
 	s.editMu.Unlock()
 
@@ -385,7 +398,7 @@ func (s *Scheduler) EditTask(taskID string, edit func(Task) (Task, error)) error
 	if s.tasks[taskID] == nil {
 		return errors.New("task not found")
 	}
-	if !reflect.DeepEqual(*s.tasks[taskID], original) {
+	if s.pauseEpoch != pauseEpoch || !reflect.DeepEqual(*s.tasks[taskID], original) {
 		return errors.New("task changed during edit")
 	}
 	if err != nil {

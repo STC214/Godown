@@ -71,7 +71,7 @@ func (t Task) OutputFile() string {
 
 // PrepareFTPDirectoryOutput leaves a pre-existing unowned directory untouched.
 // Legacy directory tasks resume into a durable, task-specific output instead.
-func (t Task) PrepareFTPDirectoryOutput() (Task, error) {
+func (t Task) PrepareFTPDirectoryOutput(reservedPaths ...string) (Task, error) {
 	if t.PackID != "ftp" || t.Stage.State["directory"] != "true" {
 		return t, nil
 	}
@@ -79,13 +79,16 @@ func (t Task) PrepareFTPDirectoryOutput() (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	if _, err := os.Lstat(output); os.IsNotExist(err) {
+	reserved := outputPathReserved(output, reservedPaths)
+	if _, err := os.Lstat(output); os.IsNotExist(err) && !reserved {
 		return t, nil
-	} else if err != nil {
+	} else if err != nil && !os.IsNotExist(err) {
 		return Task{}, err
 	}
-	if err := verifyFTPDirectoryOwner(output, t.ID); err == nil {
-		return t, nil
+	if !reserved {
+		if err := verifyFTPDirectoryOwner(output, t.ID); err == nil {
+			return t, nil
+		}
 	}
 	if t.Stage.State[ftpDirectoryOutputNameKey] != "" {
 		return Task{}, fmt.Errorf("FTP task output %q is not owned by task %s", output, t.ID)
@@ -94,6 +97,9 @@ func (t Task) PrepareFTPDirectoryOutput() (Task, error) {
 	alternate, err := taskOwnedPath(t.Path, filepath.Join(t.Path, name))
 	if err != nil {
 		return Task{}, err
+	}
+	if outputPathReserved(alternate, reservedPaths) {
+		return Task{}, fmt.Errorf("FTP task output %q is already reserved", alternate)
 	}
 	if _, err := os.Lstat(alternate); err == nil {
 		if err := verifyFTPDirectoryOwner(alternate, t.ID); err != nil {
@@ -110,6 +116,16 @@ func (t Task) PrepareFTPDirectoryOutput() (Task, error) {
 	t.Speed, t.Stage.Speed = 0, 0
 	t.Error, t.Stage.Error = "", ""
 	return t, nil
+}
+
+func outputPathReserved(output string, reservedPaths []string) bool {
+	for _, candidate := range reservedPaths {
+		absolute, err := filepath.Abs(filepath.Clean(candidate))
+		if err == nil && strings.EqualFold(output, absolute) {
+			return true
+		}
+	}
+	return false
 }
 
 func (t Task) CleanupFiles() error {
@@ -256,19 +272,20 @@ func NewStage(kind, rawURL string, fileSize int64, blockNum int, maxRetries int,
 }
 
 type TaskSnapshot struct {
-	ID        string
-	PackID    string
-	Title     string
-	URL       string
-	Status    TaskStatus
-	Path      string
-	FileSize  int64
-	Received  int64
-	Speed     int64
-	Progress  float64
-	Detail    string
-	Error     string
-	CreatedAt time.Time
+	ID         string
+	PackID     string
+	Title      string
+	URL        string
+	Status     TaskStatus
+	Path       string
+	OutputPath string
+	FileSize   int64
+	Received   int64
+	Speed      int64
+	Progress   float64
+	Detail     string
+	Error      string
+	CreatedAt  time.Time
 }
 
 type Worker interface {
@@ -311,19 +328,20 @@ type Event struct {
 
 func snapshotOf(task Task) TaskSnapshot {
 	return TaskSnapshot{
-		ID:        task.ID,
-		PackID:    task.PackID,
-		Title:     task.Title,
-		URL:       task.URL,
-		Status:    task.Status,
-		Path:      task.Path,
-		FileSize:  task.FileSize,
-		Received:  task.Received,
-		Speed:     task.Speed,
-		Progress:  task.Progress,
-		Detail:    task.Detail,
-		Error:     task.Error,
-		CreatedAt: task.CreatedAt,
+		ID:         task.ID,
+		PackID:     task.PackID,
+		Title:      task.Title,
+		URL:        task.URL,
+		Status:     task.Status,
+		Path:       task.Path,
+		OutputPath: task.OutputFile(),
+		FileSize:   task.FileSize,
+		Received:   task.Received,
+		Speed:      task.Speed,
+		Progress:   task.Progress,
+		Detail:     task.Detail,
+		Error:      task.Error,
+		CreatedAt:  task.CreatedAt,
 	}
 }
 

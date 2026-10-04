@@ -214,7 +214,7 @@ func Run(options Options) error {
 			statusLabel.SetText("文件尚未下载完成。")
 			return
 		}
-		if err := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", filepath.Join(task.Path, task.Title)).Start(); err != nil {
+		if err := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", taskOutputPath(task)).Start(); err != nil {
 			statusLabel.SetText("打开文件失败：" + err.Error())
 		}
 	}
@@ -507,7 +507,7 @@ func Run(options Options) error {
 							PushButton{AssignTo: &taskHeaderButtons[0], Text: "名称", MinSize: Size{Width: 110}, MaxSize: Size{Width: 110}, OnClicked: func() { sortTaskColumn(0) }},
 							PushButton{AssignTo: &taskHeaderButtons[1], Text: "状态", MinSize: Size{Width: 60}, MaxSize: Size{Width: 60}, OnClicked: func() { sortTaskColumn(1) }},
 							PushButton{AssignTo: &taskHeaderButtons[2], Text: "进度", MinSize: Size{Width: 65}, MaxSize: Size{Width: 65}, OnClicked: func() { sortTaskColumn(2) }},
-							PushButton{AssignTo: &taskHeaderButtons[3], Text: "大小 ▼", MinSize: Size{Width: 75}, MaxSize: Size{Width: 75}, OnClicked: func() { sortTaskColumn(3) }},
+							PushButton{AssignTo: &taskHeaderButtons[3], Text: "大小", MinSize: Size{Width: 75}, MaxSize: Size{Width: 75}, OnClicked: func() { sortTaskColumn(3) }},
 							PushButton{AssignTo: &taskHeaderButtons[4], Text: "速度", MinSize: Size{Width: 70}, MaxSize: Size{Width: 70}, OnClicked: func() { sortTaskColumn(4) }},
 							PushButton{AssignTo: &taskHeaderButtons[5], Text: "目录", StretchFactor: 1, OnClicked: func() { sortTaskColumn(5) }},
 						},
@@ -572,7 +572,7 @@ func Run(options Options) error {
 	// TableView initializes sorter models to its first column while creating the
 	// native control. Restore the product default and synchronize the custom
 	// dark header before the window is shown.
-	if err := taskModel.Sort(3, walk.SortDescending); err != nil {
+	if err := taskModel.Sort(taskSortCreatedAt, walk.SortDescending); err != nil {
 		return fmt.Errorf("初始化任务排序失败：%w", err)
 	}
 	updateTaskSortHeaders()
@@ -644,6 +644,13 @@ func Run(options Options) error {
 	return nil
 }
 
+func taskOutputPath(task core.TaskSnapshot) string {
+	if task.OutputPath != "" {
+		return task.OutputPath
+	}
+	return filepath.Join(task.Path, task.Title)
+}
+
 func saveSettings(options Options, settings config.Settings) error {
 	if options.SaveSettings == nil {
 		return nil
@@ -687,16 +694,17 @@ func refreshTaskSelection(table *walk.TableView, model *taskTableModel, selected
 	}
 	row := -1
 	if table != nil {
-		indexes := table.SelectedIndexes()
-		if len(indexes) > 0 {
-			row = indexes[0]
-		}
+		row = table.CurrentIndex()
 	}
 	task, ok := model.TaskAt(row)
-	if !ok && selectedTaskID != nil && *selectedTaskID != "" {
-		task, ok = model.TaskByID(*selectedTaskID)
-	}
+	// The visible selection is authoritative. A task hidden by a filter or
+	// explicitly deselected must not remain the target of toolbar actions.
 	if !ok {
+		// Walk's ID-based reset can retain an invalid current index when the
+		// last visible row disappears. Normalize the native selection as well.
+		if table != nil && table.CurrentIndex() != -1 {
+			_ = table.SetCurrentIndex(-1)
+		}
 		if selectedTaskID != nil {
 			*selectedTaskID = ""
 		}

@@ -148,7 +148,7 @@ func TestSchedulerEditTaskRestartsActiveWorkerWithLatestState(t *testing.T) {
 	}
 }
 
-func TestSchedulerEditTaskSerializesConcurrentEditors(t *testing.T) {
+func TestSchedulerEditTaskRejectsConcurrentEditorsWithoutLosingChanges(t *testing.T) {
 	task := NewTask("fake", "example.bin", "https://example.test/example.bin", t.TempDir(), 10, NewStage("fake", "https://example.test/example.bin", 10, 1, 0, true, nil, ""))
 	task.Status = StatusPaused
 	task.Stage.Status = StatusPaused
@@ -182,19 +182,53 @@ func TestSchedulerEditTaskSerializesConcurrentEditors(t *testing.T) {
 	}()
 	select {
 	case <-secondEntered:
-		t.Fatal("second editor entered before first editor completed")
-	case <-time.After(50 * time.Millisecond):
+		t.Fatal("second editor entered while first edit was active")
+	case err := <-secondDone:
+		if err == nil || err.Error() != "task edit already in progress" {
+			t.Fatalf("concurrent edit result = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent edit blocked instead of returning a conflict")
 	}
 	close(releaseFirst)
 	if err := <-firstDone; err != nil {
 		t.Fatal(err)
 	}
-	if err := <-secondDone; err != nil {
+	if err := scheduler.EditTask(task.ID, func(current Task) (Task, error) {
+		current.Stage.State["second"] = current.Stage.State["first"]
+		return current, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	updated, ok := scheduler.Task(task.ID)
 	if !ok || updated.Stage.State["first"] != "saved" || updated.Stage.State["second"] != "saved" {
 		t.Fatalf("concurrent edits were not composed: %#v", updated.Stage.State)
+	}
+}
+
+func TestSchedulerEditTaskRecursiveCallReturnsConflict(t *testing.T) {
+	scheduler := NewScheduler(NewRegistry(), nil, 1)
+	defer scheduler.StopAll()
+	task := NewTask("missing", "file.bin", "fixture://file", t.TempDir(), 1, NewStage("missing", "fixture://file", 1, 1, 0, false, nil, ""))
+	task.Status, task.Stage.Status = StatusPaused, StatusPaused
+	scheduler.Add(task)
+	done := make(chan error, 1)
+	go func() {
+		done <- scheduler.EditTask(task.ID, func(current Task) (Task, error) {
+			nestedErr := scheduler.EditTask(task.ID, func(nested Task) (Task, error) { return nested, nil })
+			if nestedErr == nil || nestedErr.Error() != "task edit already in progress" {
+				return Task{}, errors.New("recursive edit was not rejected")
+			}
+			return current, nil
+		})
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("recursive edit deadlocked")
 	}
 }
 
@@ -949,6 +983,63 @@ func TestSchedulerLoadsLegacyFTPDirectoryWithoutTouchingOldFiles(t *testing.T) {
 	reloaded.StopAll()
 }
 
+func TestSchedulerReservesFTPDirectoryOutputsBeforeCreation(t *testing.T) {
+	base := t.TempDir()
+	scheduler := NewScheduler(NewRegistry(), nil, 1)
+	defer scheduler.StopAll()
+	newTask := func() Task {
+		task := NewTask("ftp", "tree", "ftp://fixture/tree/", base, 0, NewStage("ftp", "ftp://fixture/tree/", 0, 1, 0, true, nil, ""))
+		task.Stage.State = map[string]string{"directory": "true"}
+		task.Status, task.Stage.Status = StatusPaused, StatusPaused
+		return task
+	}
+	first, second := newTask(), newTask()
+	scheduler.Add(first)
+	scheduler.Add(second)
+	firstStored, ok := scheduler.Task(first.ID)
+	if !ok {
+		t.Fatal("first task missing")
+	}
+	secondStored, ok := scheduler.Task(second.ID)
+	if !ok || firstStored.OutputFile() == secondStored.OutputFile() {
+		t.Fatalf("queued tasks share output: first=%q second=%q", firstStored.OutputFile(), secondStored.OutputFile())
+	}
+	if _, err := os.Stat(firstStored.OutputFile()); !os.IsNotExist(err) {
+		t.Fatalf("reservation unexpectedly created output: %v", err)
+	}
+	for _, snapshot := range scheduler.Snapshot() {
+		stored, ok := scheduler.Task(snapshot.ID)
+		if !ok || snapshot.OutputPath != stored.OutputFile() {
+			t.Fatalf("snapshot output mismatch: %#v", snapshot)
+		}
+	}
+}
+
+func TestSchedulerLoadSeparatesPendingFTPDirectoryOutputs(t *testing.T) {
+	base := t.TempDir()
+	newTask := func() Task {
+		task := NewTask("ftp", "tree", "ftp://fixture/tree/", base, 0, NewStage("ftp", "ftp://fixture/tree/", 0, 1, 0, true, nil, ""))
+		task.Stage.State = map[string]string{"directory": "true"}
+		return task
+	}
+	first, second := newTask(), newTask()
+	store := &memoryTaskStore{tasks: []Task{first, second}}
+	scheduler := NewScheduler(NewRegistry(), store, 1)
+	if err := scheduler.Load(); err != nil {
+		t.Fatal(err)
+	}
+	firstStored, _ := scheduler.Task(first.ID)
+	secondStored, _ := scheduler.Task(second.ID)
+	if firstStored.OutputFile() == secondStored.OutputFile() || secondStored.Status != StatusPaused {
+		t.Fatalf("loaded directory outputs overlap: %#v %#v", firstStored, secondStored)
+	}
+	scheduler.StopAll()
+	saved, err := store.Load()
+	if err != nil || len(saved) != 2 || saved[1].OutputFile() != secondStored.OutputFile() {
+		t.Fatalf("reserved output not persisted: %#v, %v", saved, err)
+	}
+}
+
 func TestDirectoryMigrationFailurePreservesWholeTaskStore(t *testing.T) {
 	base := t.TempDir()
 	first := NewTask("missing", "first.bin", "fixture://first", base, 1, NewStage("missing", "fixture://first", 1, 1, 0, false, nil, ""))
@@ -1018,6 +1109,27 @@ func TestSchedulerEditTaskCallbackCanRunSchedulerAction(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("edit callback blocked on scheduler action")
+	}
+}
+
+func TestSchedulerEditTaskDoesNotUndoPauseAllDuringCallback(t *testing.T) {
+	worker := &blockingWorker{started: make(chan struct{}), done: make(chan struct{})}
+	registry := NewRegistry()
+	registry.Register("fake", worker)
+	scheduler := NewScheduler(registry, nil, 1)
+	defer scheduler.StopAll()
+	task := NewTask("fake", "file.bin", "fixture://file", t.TempDir(), 1, NewStage("fake", "fixture://file", 1, 1, 0, false, nil, ""))
+	scheduler.Add(task)
+	waitForChannel(t, worker.started, "worker start")
+	err := scheduler.EditTask(task.ID, func(current Task) (Task, error) {
+		scheduler.PauseAll()
+		return current, nil
+	})
+	if err == nil || err.Error() != "task changed during edit" {
+		t.Fatalf("pause action did not conflict with edit: %v", err)
+	}
+	if got := taskStatusByID(t, scheduler, task.ID); got != StatusPaused {
+		t.Fatalf("PauseAll was undone by edit: %s", got)
 	}
 }
 

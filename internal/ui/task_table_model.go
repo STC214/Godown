@@ -12,6 +12,9 @@ import (
 
 type taskFilter int
 
+// Creation time is a default ordering, not the visible size column.
+const taskSortCreatedAt = -1
+
 const (
 	taskFilterAll taskFilter = iota
 	taskFilterActive
@@ -34,15 +37,25 @@ type taskTableModel struct {
 
 func newTaskTableModel() *taskTableModel {
 	model := &taskTableModel{
-		sortColumn: 3,
+		sortColumn: taskSortCreatedAt,
 		sortOrder:  walk.SortDescending,
 	}
+	_ = model.SorterBase.Sort(model.sortColumn, model.sortOrder)
 	model.rebuild()
 	return model
 }
 
 func (m *taskTableModel) RowCount() int {
 	return len(m.rows)
+}
+
+// ID lets Walk restore the selected task after a reset or sort rather than
+// retaining an obsolete row index (or dropping the selection on progress).
+func (m *taskTableModel) ID(row int) interface{} {
+	if task, ok := m.TaskAt(row); ok {
+		return task.ID
+	}
+	return nil
 }
 
 func (m *taskTableModel) Value(row, col int) interface{} {
@@ -119,6 +132,9 @@ func (m *taskTableModel) SetDarkMode(enabled bool) {
 	}
 	m.darkMode = enabled
 	m.PublishRowsReset()
+	if len(m.rows) > 0 {
+		m.PublishRowsChanged(0, len(m.rows)-1)
+	}
 }
 
 func (m *taskTableModel) StyleCell(style *walk.CellStyle) {
@@ -174,6 +190,11 @@ func (m *taskTableModel) rebuild() {
 	}
 	m.sortRows()
 	m.PublishRowsReset()
+	// Walk resets the virtual ListView count with LVSICF_NOINVALIDATEALL.
+	// Existing row pixels must also be refreshed after insertion or reordering.
+	if len(m.rows) > 0 {
+		m.PublishRowsChanged(0, len(m.rows)-1)
+	}
 }
 
 func (m *taskTableModel) sortRows() {
@@ -189,7 +210,14 @@ func (m *taskTableModel) sortRows() {
 		case 2:
 			comparison = compareFloat(left.Progress, right.Progress)
 		case 3:
-			comparison = left.CreatedAt.Compare(right.CreatedAt)
+			leftSize, rightSize := left.FileSize, right.FileSize
+			if leftSize <= 0 {
+				leftSize = left.Received
+			}
+			if rightSize <= 0 {
+				rightSize = right.Received
+			}
+			comparison = compareInt64(leftSize, rightSize)
 		case 4:
 			comparison = compareInt64(left.Speed, right.Speed)
 		case 5:

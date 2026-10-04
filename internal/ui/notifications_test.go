@@ -1,12 +1,24 @@
 package ui
 
 import (
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
 
 	"ghost-downloader-go-win32/internal/core"
 )
+
+func TestTaskOutputPathUsesMigratedLocation(t *testing.T) {
+	task := core.TaskSnapshot{Path: t.TempDir(), Title: "tree", OutputPath: filepath.Join(t.TempDir(), "ftp-task")}
+	if got := taskOutputPath(task); got != task.OutputPath {
+		t.Fatalf("open target=%q want %q", got, task.OutputPath)
+	}
+	task.OutputPath = ""
+	if got := taskOutputPath(task); got != filepath.Join(task.Path, task.Title) {
+		t.Fatalf("legacy open target=%q", got)
+	}
+}
 
 func TestSerialExecutorPreservesSubmissionOrderAndWaits(t *testing.T) {
 	executor := newSerialExecutor()
